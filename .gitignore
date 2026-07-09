@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+backend/.venv/
+
+# Django / Databases
+*.sqlite3
+*.db
+db.sqlite3
+/backend/db.sqlite3
+media/
+staticfiles/
+local_settings.py
+
+# Environment variables / secrets
+.env
+.env.*
+.env.local
+\
+# Node / frontend
+node_modules/
+frontend/node_modules/
+dist/
+build/
+public/build/
+.vite/
+.vite_deps/
+.npm/
+.npmrc
+
+# Logs
+*.log
+logs/
+
+# Coverage / test
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.cache/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.iml
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor temporary files
+*~
+*.swp
+*.swo
+
+# Python packaging
+*.egg-info/
+.eggs/
+*.egg
+
+# Misc
+Thumbs.db
+
+# Secrets (common filenames)
+credentials.json
+secret_key.txt

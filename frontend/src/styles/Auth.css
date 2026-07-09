@@ -1,0 +1,319 @@
+/* ===========================
+   BACKGROUND
+=========================== */
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #0f4c81, #2563eb, #60a5fa);
+    min-height: 100vh;
+}
+
+/* ===========================
+   MAIN CONTAINER
+=========================== */
+
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 85vh;
+    padding: 40px 20px;
+}
+
+/* ===========================
+   CARD
+=========================== */
+
+.auth-card {
+    width: 450px;
+    background: rgba(255, 255, 255, .18);
+    backdrop-filter: blur(15px);
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 10px 35px rgba(0, 0, 0, .25);
+    border: 1px solid rgba(255, 255, 255, .25);
+    animation: fadeIn .7s ease;
+}
+
+/* ===========================
+   TITLE
+=========================== */
+
+.auth-card h2 {
+    color: white;
+    text-align: center;
+    font-size: 32px;
+    margin-bottom: 30px;
+}
+
+/* ===========================
+   INPUTS
+=========================== */
+
+.auth-card input {
+    width: 100%;
+    padding: 15px 50px 15px 45px;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+    margin-bottom: 15px;
+    font-size: 16px;
+    background: white;
+    color: #1e293b;      /* <-- Makes typed text visible */
+    box-sizing: border-box;
+    transition: .3s;
+}
+.auth-card input::placeholder {
+    color: #94a3b8;
+}
+
+.auth-card input:focus {
+    transform: scale(1.02);
+    box-shadow: 0 0 12px rgba(37, 99, 235, .4);
+}
+
+/* ===========================
+   PASSWORD BOX
+=========================== */
+
+.password-box {
+    position: relative;
+}
+
+.toggle {
+    position: absolute;
+    right: 15px;
+    top: 16px;
+    cursor: pointer;
+    font-size: 18px;
+    user-select: none;
+}
+
+/* ===========================
+   PASSWORD CHECKLIST
+=========================== */
+
+.password-info {
+    background: rgba(255, 255, 255, .9);
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.password-info h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #2563eb;
+}
+
+.success {
+    color: #16a34a;
+    font-weight: 600;
+    margin: 6px 0;
+}
+
+.fail {
+    color: #dc2626;
+    font-weight: 600;
+    margin: 6px 0;
+}
+
+/* ===========================
+   BUTTON
+=========================== */
+
+.auth-card button {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 12px;
+    background: #2563eb;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    transition: .3s;
+    font-weight: bold;
+
+    /* Added */
+    letter-spacing: .5px;
+    box-shadow: 0 8px 20px rgba(37, 99, 235, .35);
+}
+
+.auth-card button:hover {
+    background: #1d4ed8;
+    transform: translateY(-3px);
+    box-shadow: 0 15px 30px rgba(37, 99, 235, .45);
+}
+
+.auth-card button:disabled {
+    background: #94a3b8;
+    cursor: not-allowed;
+    transform: none;
+}/* ===========================
+   ERROR
+=========================== */
+
+.error {
+    color: #ffdddd;
+    margin-top: -8px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* ===========================
+   MESSAGE
+=========================== */
+
+.message {
+    background: white;
+    color: #2563eb;
+    padding: 12px;
+    border-radius: 10px;
+    text-align: center;
+    margin-bottom: 20px;
+    font-weight: bold;
+}
+
+/* ===========================
+   LINK
+=========================== */
+
+.auth-link {
+    text-align: center;
+    margin-top: 20px;
+    color: white;
+}
+
+.auth-link a {
+    color: #fff;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.auth-link a:hover {
+    text-decoration: underline;
+}
+
+/* ===========================
+   ANIMATION
+=========================== */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===========================
+   RESPONSIVE
+=========================== */
+
+@media (max-width: 600px) {
+
+    .auth-card {
+        width: 100%;
+        padding: 25px;
+    }
+
+    .auth-card h2 {
+        font-size: 26px;
+    }
+}
+
+/* ===========================
+   INPUT GROUP WITH ICONS
+=========================== */
+
+.input-group {
+    position: relative;
+    margin-bottom: 18px;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 15px 50px 15px 45px;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.input-group input::placeholder {
+    color: #94a3b8;
+}
+
+/* Left icon */
+
+.icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #2563eb;
+    font-size: 18px;
+    pointer-events: none;
+}
+
+/* Right eye icon */
+
+.eye-icon {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    color: #2563eb;
+    font-size: 18px;
+}
+
+/* ===========================
+   PASSWORD STRENGTH BAR
+=========================== */
+
+.strength-bar {
+    width: 100%;
+    height: 8px;
+    background: #d1d5db;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.strength-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 10px;
+    transition: all .4s ease;
+}
+
+.strength-weak {
+    width: 33%;
+    background: #ef4444;
+}
+
+.strength-medium {
+    width: 66%;
+    background: #f59e0b;
+}
+
+.strength-strong {
+    width: 100%;
+    background: #22c55e;
+}
+
+.strength-text {
+    text-align: center;
+    color: white;
+    margin: 10px 0 20px;
+    font-weight: bold;
+}
