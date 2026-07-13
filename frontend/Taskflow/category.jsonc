@@ -1,0 +1,18 @@
+{
+  "name": "Category",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "title": "Name"
+    },
+    "color": {
+      "type": "string",
+      "default": "indigo",
+      "title": "Color"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

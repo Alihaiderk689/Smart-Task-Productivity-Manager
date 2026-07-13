@@ -15,6 +15,8 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import dj_database_url
+from datetime import timedelta
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -41,44 +43,45 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     # Django Apps
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
+    'django.contrib.admin', #create the admin panel.
+    'django.contrib.auth',  #authorization and authentication system.
+    'django.contrib.contenttypes', #helps understand diff django models.
+    'django.contrib.sessions',  #user sessions management.
+    'django.contrib.messages',  #allow django to display temporary messages.
     'django.contrib.staticfiles',
 
     # Third-party Apps
-    'rest_framework',
-    'rest_framework_simplejwt.token_blacklist',
-    'corsheaders',
-    'django_filters',
+    'rest_framework',       #run django into a RESTful API framework.
+    'rest_framework_simplejwt.token_blacklist',     #blacklist functionality.
+    'corsheaders',      
+    'django_filters',       #provides easy filtering.
     'drf_yasg',
 
     # Local Apps
-    'users',
-    'categories',
-    'tasks',
-    'dashboard',
+    'users',            #resposible for authentication.
+    'categories',       #responsible for task categories.
+    'tasks',            #responsible for task management.   
+    'dashboard',        #statistics and summary infomation.
     'core',
+    "notifications",    #responsible for notifications.
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
+    'django.middleware.security.SecurityMiddleware',  #add securityu features.
+    'corsheaders.middleware.CorsMiddleware',        
+    'django.contrib.sessions.middleware.SessionMiddleware',     #manage user sessions.
+    'django.middleware.common.CommonMiddleware',                #common request/response tasks.
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',      #authentication and authorization.
+    'django.contrib.messages.middleware.MessageMiddleware',            #temporary messages.
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',           #protect against clickjacking attacks.
 ]
 
-ROOT_URLCONF = 'config.urls'
+ROOT_URLCONF = 'config.urls'        #whenever a req comes in, start looking for urls in config.urls file.
 
-TEMPLATES = [
+TEMPLATES = [           #is an HTML file that Django fills with data.
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',       #Use Django's built-in template engine.
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -169,7 +172,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "Asia/Karachi"
 
 USE_I18N = True
 
@@ -196,7 +199,7 @@ AUTH_PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
 ]
 
-from datetime import timedelta
+
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -219,7 +222,7 @@ SIMPLE_JWT = {
 }
 
 # Simple JWT settings (defaults are fine for dev)
-from datetime import timedelta
+
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
@@ -230,3 +233,27 @@ SIMPLE_JWT = {
 
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+
+#for email backend
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+
+# Base URL of the frontend app, used to build links sent in emails (e.g. password reset).
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+
+#Using "Asia/Karachi" ensures reminder times match your users’ local timezone.
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "Asia/Karachi"
+CELERY_ENABLE_UTC = True

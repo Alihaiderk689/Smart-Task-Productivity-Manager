@@ -1,89 +1,120 @@
-import { useState } from "react";
-import "../styles/Auth.css";
+import React, { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
+import AuthLayout from "@/components/authlayout";
+import { useAuth } from "@/context/AuthContext";
 
-function Login() {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
+// Only allow redirecting back to a same-app path, never to an external URL.
+function getRedirectDestination(location) {
+  const stateFrom = location.state?.from;
+  if (typeof stateFrom === "string" && stateFrom.startsWith("/")) {
+    return stateFrom;
+  }
 
-  const [errors, setErrors] = useState({});
-  const [message, setMessage] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const queryFrom = new URLSearchParams(location.search).get("from");
+  if (queryFrom && queryFrom.startsWith("/")) {
+    return queryFrom;
+  }
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-    setMessage("");
-  };
+  return "/";
+}
 
-  const validate = () => {
-    let newErrors = {};
+export default function Login() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(formData.email)) {
-      newErrors.email = "Enter valid email";
-    }
-
-    if (!formData.password) {
-      newErrors.password = "Password required";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!validate()) {
-      setMessage("Fix errors");
-      return;
+    setError("");
+    setLoading(true);
+    try {
+      await signIn({ email, password });
+      navigate(getRedirectDestination(location), { replace: true });
+    } catch (err) {
+      setError(err.message || "Invalid email or password");
+    } finally {
+      setLoading(false);
     }
-
-    setMessage("Login successful (backend next step)");
-    console.log(formData);
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <h2>Login</h2>
+    <AuthLayout
+      icon={LogIn}
+      title="Welcome back"
+      subtitle="Log in to your account"
+      footer={
+        <>
+          Don't have an account?{" "}
+          <Link to="/register" className="text-primary font-medium hover:underline">
+            Create one
+          </Link>
+        </>
+      }
+    >
+      {error && (
+        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+          {error}
+        </div>
+      )}
 
-        {message && <div className="message">{message}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <input
-            name="email"
-            placeholder="Email"
-            value={formData.email}
-            onChange={handleChange}
-          />
-          {errors.email && <p className="error">{errors.email}</p>}
-
-          <div className="password-box">
-            <input
-              type={showPassword ? "text" : "password"}
-              name="password"
-              placeholder="Password"
-              value={formData.password}
-              onChange={handleChange}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              autoFocus
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="pl-10 h-12"
+              required
             />
-
-            <span onClick={() => setShowPassword(!showPassword)} className="toggle">
-              {showPassword ? "🙈" : "👁️"}
-            </span>
           </div>
-
-          {errors.password && <p className="error">{errors.password}</p>}
-
-          <button>
-            Login
-          </button>
-        </form>
-      </div>
-    </div>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link to="/forgot-password" className="text-xs text-primary hover:underline">
+              Forgot password?
+            </Link>
+          </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="pl-10 h-12"
+              required
+            />
+          </div>
+        </div>
+        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Logging in...
+            </>
+          ) : (
+            "Log in"
+          )}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }
-
-export default Login;

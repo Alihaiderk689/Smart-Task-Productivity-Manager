@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+
+<h2>Hello {{ user.first_name|default:user.username }},</h2>
+
+<p>A reminder that your task:</p>
+
+<h3>{{ task.title }}</h3>
+
+<p>
+is still <strong>in progress</strong>. You are about 40% through the scheduled time. 
+</p>
+
+<p>
+If you haven't started yet, please begin now to stay on track!
+</p>
+
+</body>
+</html>

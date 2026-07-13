@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+
+<h2>Hello {{ user.first_name|default:user.username }},</h2>
+
+<p>Your task:</p>
+
+<h3>{{ task.title }}</h3>
+
+<p>
+starts in <strong>5 minutes</strong>.
+</p>
+
+<p>
+Please get ready to start your task now!
+</p>
+
+</body>
+</html>

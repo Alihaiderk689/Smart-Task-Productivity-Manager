@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+
+<h2>Hello {{ user.first_name|default:user.username }},</h2>
+
+<p>Your task:</p>
+
+<h3>{{ task.title }}</h3>
+
+<p>
+is now <strong>overdue</strong>. The scheduled end time has passed.
+</p>
+
+<p>
+Please complete or reschedule the task as soon as possible.
+</p>
+
+<p>
+<a href="{{ reschedule_link }}">Click here to reschedule this task</a>
+</p>
+
+</body>
+</html>

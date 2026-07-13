@@ -1,0 +1,73 @@
+{
+  "name": "Task",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "title": "Title"
+    },
+    "description": {
+      "type": "string",
+      "title": "Description"
+    },
+    "category_id": {
+      "type": "string",
+      "title": "Category"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "in_progress",
+        "paused",
+        "completed",
+        "stopped"
+      ],
+      "default": "pending",
+      "title": "Status"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default": "medium",
+      "title": "Priority"
+    },
+    "due_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Due Date"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start Date"
+    },
+    "completed_date": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Completed Date"
+    },
+    "paused_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Paused At"
+    },
+    "total_paused_seconds": {
+      "type": "number",
+      "default": 0,
+      "title": "Total Paused Seconds"
+    },
+    "rescheduled_count": {
+      "type": "number",
+      "default": 0,
+      "title": "Rescheduled Count"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}
