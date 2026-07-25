@@ -56,7 +56,16 @@ def send_overdue_reminder(task_id, reminder_version):
         )
 
         task.reminder_overdue_sent = True
-        task.save(update_fields=["reminder_overdue_sent"])
+        update_fields = ["reminder_overdue_sent"]
+
+        # The deadline passed without the task being completed or deliberately
+        # stopped, so it's now Missed. The user can still reschedule it (see
+        # reschedule_link above), which resets status back to Pending.
+        if task.status not in ("Completed", "Stopped"):
+            task.status = "Missed"
+            update_fields.append("status")
+
+        task.save(update_fields=update_fields)
 
     except Task.DoesNotExist:
         return

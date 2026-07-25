@@ -1,20 +1,19 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, Lock, Loader2 } from "lucide-react";
+import { UserPlus, Mail, Lock, Loader2, MailCheck } from "lucide-react";
 import AuthLayout from "@/components/authlayout";
-import { useAuth } from "@/context/AuthContext";
+import { getErrorMessage, signUpRequest } from "@/services/api";
 
 export default function Register() {
-  const navigate = useNavigate();
-  const { signUp } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [signedUp, setSignedUp] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,14 +24,34 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await signUp({ email, password });
-      navigate("/", { replace: true });
+      await signUpRequest({ email, password });
+      setSignedUp(true);
     } catch (err) {
-      setError(err.message || "Registration failed");
+      setError(getErrorMessage(err, "Registration failed"));
     } finally {
       setLoading(false);
     }
   };
+
+  if (signedUp) {
+    return (
+      <AuthLayout
+        icon={MailCheck}
+        title="Check your email"
+        subtitle="Almost there"
+        footer={
+          <Link to="/login" className="text-primary font-medium hover:underline">
+            Back to log in
+          </Link>
+        }
+      >
+        <p className="text-sm text-foreground text-center">
+          We've sent a verification link to <strong>{email}</strong>. Click it to activate your
+          account and log in.
+        </p>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout

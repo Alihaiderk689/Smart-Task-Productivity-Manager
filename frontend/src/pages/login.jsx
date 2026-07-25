@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/authlayout";
 import { useAuth } from "@/context/AuthContext";
+import { getErrorMessage, resendVerificationEmailRequest } from "@/services/api";
 
 // Only allow redirecting back to a same-app path, never to an external URL.
 function getRedirectDestination(location) {
@@ -30,18 +31,38 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setNeedsVerification(false);
+    setResendSent(false);
     setLoading(true);
     try {
       await signIn({ email, password });
       navigate(getRedirectDestination(location), { replace: true });
     } catch (err) {
-      setError(err.message || "Invalid email or password");
+      setError(getErrorMessage(err, "Invalid email or password"));
+      if (err.response?.status === 403) {
+        setNeedsVerification(true);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      await resendVerificationEmailRequest(email);
+      setResendSent(true);
+    } catch {
+      // the resend endpoint always returns a generic success response
+    } finally {
+      setResending(false);
     }
   };
 
@@ -62,6 +83,22 @@ export default function Login() {
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
           {error}
+          {needsVerification && (
+            <div className="mt-2">
+              {resendSent ? (
+                <span className="text-foreground">Check your inbox for a new link.</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resending}
+                  className="font-medium underline hover:no-underline disabled:opacity-60"
+                >
+                  {resending ? "Sending..." : "Resend verification email"}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

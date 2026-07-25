@@ -95,7 +95,7 @@ export default function TaskDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
       </div>
     );
   }
@@ -103,8 +103,8 @@ export default function TaskDetail() {
   if (!task) {
     return (
       <div className="p-8 text-center">
-        <p className="text-slate-500">Task not found.</p>
-        <Link to="/tasks" className="text-indigo-600 hover:underline">Back to tasks</Link>
+        <p className="text-slate-500 dark:text-slate-400">Task not found.</p>
+        <Link to="/tasks" className="text-indigo-600 dark:text-indigo-400 hover:underline">Back to tasks</Link>
       </div>
     );
   }
@@ -124,50 +124,50 @@ export default function TaskDetail() {
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <Link to="/tasks" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6">
+      <Link to="/tasks" className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 mb-6">
         <ArrowLeft className="w-4 h-4" /> Back to Tasks
       </Link>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-6 lg:p-8">
           <div className="flex items-start justify-between gap-4 mb-4">
-            <h1 className="text-2xl font-bold text-slate-900">{task.title}</h1>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{task.title}</h1>
             <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${status.badge} whitespace-nowrap`}>
               <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
               {status.label}
             </span>
           </div>
 
-          {task.description && <p className="text-slate-600 mb-6 whitespace-pre-wrap">{task.description}</p>}
+          {task.description && <p className="text-slate-600 dark:text-slate-300 mb-6 whitespace-pre-wrap">{task.description}</p>}
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Flag className="w-4 h-4 text-slate-500" />
+              <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Flag className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               </div>
               <div>
                 <p className="text-xs text-slate-400">Priority</p>
-                <p className="text-sm font-medium text-slate-700">{priority.label}</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{priority.label}</p>
               </div>
             </div>
             {category && (
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <Tag className="w-4 h-4 text-slate-500" />
+                <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                  <Tag className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Category</p>
-                  <p className="text-sm font-medium text-slate-700">{category.name}</p>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{category.name}</p>
                 </div>
               </div>
             )}
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Calendar className="w-4 h-4 text-slate-500" />
+              <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               </div>
               <div>
                 <p className="text-xs text-slate-400">Due</p>
-                <p className="text-sm font-medium text-slate-700">{task.end_time ? new Date(task.end_time).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{task.end_time ? new Date(task.end_time).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</p>
               </div>
             </div>
           </div>
@@ -183,29 +183,29 @@ export default function TaskDetail() {
                   </button>
                 );
               })}
-              <button onClick={() => { setNewStartTime(toDatetimeLocal(task.start_time)); setNewEndTime(toDatetimeLocal(task.end_time)); setRescheduleOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+              <button onClick={() => { setNewStartTime(toDatetimeLocal(task.start_time)); setNewEndTime(toDatetimeLocal(task.end_time)); setRescheduleOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                 <CalendarClock className="w-4 h-4" /> Reschedule
               </button>
             </div>
           )}
 
-          <div className="flex gap-2 pt-6 border-t border-slate-100">
-            <button onClick={() => setEditOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+          <div className="flex gap-2 pt-6 border-t border-slate-100 dark:border-slate-800">
+            <button onClick={() => setEditOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
               <Pencil className="w-4 h-4" /> Edit
             </button>
-            <button onClick={() => setDeleteOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+            <button onClick={() => setDeleteOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
               <Trash2 className="w-4 h-4" /> Delete
             </button>
           </div>
         </div>
 
-        <div className="bg-slate-50 border-t border-slate-100 p-6 lg:p-8">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Activity Timeline</h3>
+        <div className="bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 p-6 lg:p-8">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Activity Timeline</h3>
           <div className="space-y-3">
             <TimelineItem label="Created" date={task.created_at} />
             {task.started_at && <TimelineItem label="Started" date={task.started_at} />}
             {task.completed_at && <TimelineItem label="Completed" date={task.completed_at} />}
-            {task.rescheduled_count > 0 && <div className="text-sm text-slate-500 pl-4">Rescheduled {task.rescheduled_count} time(s)</div>}
+            {task.rescheduled_count > 0 && <div className="text-sm text-slate-500 dark:text-slate-400 pl-4">Rescheduled {task.rescheduled_count} time(s)</div>}
           </div>
         </div>
       </div>
@@ -254,7 +254,7 @@ function TimelineItem({ label, date }) {
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="w-2 h-2 rounded-full bg-indigo-400" />
-      <span className="text-slate-600 font-medium">{label}</span>
+      <span className="text-slate-600 dark:text-slate-300 font-medium">{label}</span>
       <span className="text-slate-400">{formatDateTime(date)}</span>
     </div>
   );
