@@ -6,9 +6,20 @@ import { CheckCircle2, Clock, PlayCircle, ListTodo, Plus, ArrowRight, AlertTrian
 import StatCard from '@/components/statcard';
 import TaskForm from '@/components/taskform';
 import { statusConfig, colorMap, priorityConfig, getCategoryColor } from '../lib/taskUtils';
+import { useTheme } from '@/context/ThemeContext';
 
 export default function Home() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
+  const chartGridColor = isDark ? '#1e293b' : '#f1f5f9';
+  const chartTickColor = isDark ? '#64748b' : '#94a3b8';
+  const chartTooltipStyle = {
+    borderRadius: '12px',
+    border: `1px solid ${isDark ? '#1e293b' : '#f1f5f9'}`,
+    fontSize: '13px',
+    background: isDark ? '#0f172a' : '#ffffff',
+    color: isDark ? '#f1f5f9' : '#0f172a',
+  };
   const [tasks, setTasks] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +116,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
       </div>
     );
   }
@@ -114,8 +125,8 @@ export default function Home() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 mt-1">{new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">{new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
         <button onClick={() => setFormOpen(true)} className="hidden sm:flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
           <Plus className="w-4 h-4" /> New Task
@@ -133,10 +144,10 @@ export default function Home() {
 
       {/* Due Date Reminders */}
       {(reminders.overdue.length > 0 || reminders.dueToday.length > 0 || reminders.dueTomorrow.length > 0) && (
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mb-8">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm mb-8">
           <div className="flex items-center gap-2 mb-4">
-            <Bell className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-lg font-semibold text-slate-900">Due Date Reminders</h2>
+            <Bell className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Due Date Reminders</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <ReminderColumn title="Overdue" tasks={reminders.overdue} color="red" />
@@ -147,29 +158,29 @@ export default function Home() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-1">Weekly Summary</h2>
-          <p className="text-sm text-slate-500 mb-6">Tasks completed in the last 7 days</p>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Weekly Summary</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Tasks completed in the last 7 days</p>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={weeklyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '13px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} vertical={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 12, fill: chartTickColor }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 12, fill: chartTickColor }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={chartTooltipStyle} />
               <Bar dataKey="completed" fill="#6366f1" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-1">Monthly Report</h2>
-          <p className="text-sm text-slate-500 mb-6">Productivity trend over 4 weeks</p>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Monthly Report</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Productivity trend over 4 weeks</p>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="week" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '13px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} vertical={false} />
+              <XAxis dataKey="week" tick={{ fontSize: 12, fill: chartTickColor }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 12, fill: chartTickColor }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={chartTooltipStyle} />
               <Line type="monotone" dataKey="tasks" stroke="#8b5cf6" strokeWidth={3} dot={{ fill: '#8b5cf6', r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -178,15 +189,15 @@ export default function Home() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {categoryData.length > 0 && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900 mb-6">Category Distribution</h2>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-6">Category Distribution</h2>
             <div className="flex items-center gap-6">
               <ResponsiveContainer width={180} height={180}>
                 <PieChart>
                   <Pie data={categoryData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={45}>
                     {categoryData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '13px' }} />
+                  <Tooltip contentStyle={chartTooltipStyle} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-2 flex-1">
@@ -194,9 +205,9 @@ export default function Home() {
                   <div key={i} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-full" style={{ background: cat.color }} />
-                      <span className="text-slate-600">{cat.name}</span>
+                      <span className="text-slate-600 dark:text-slate-300">{cat.name}</span>
                     </div>
-                    <span className="font-medium text-slate-900">{cat.value}</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">{cat.value}</span>
                   </div>
                 ))}
               </div>
@@ -205,15 +216,15 @@ export default function Home() {
         )}
 
         {priorityData.length > 0 && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900 mb-6">Priority Distribution</h2>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-6">Priority Distribution</h2>
             <div className="flex items-center gap-6">
               <ResponsiveContainer width={180} height={180}>
                 <PieChart>
                   <Pie data={priorityData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={45}>
                     {priorityData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '13px' }} />
+                  <Tooltip contentStyle={chartTooltipStyle} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-2 flex-1">
@@ -221,9 +232,9 @@ export default function Home() {
                   <div key={i} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-full" style={{ background: p.color }} />
-                      <span className="text-slate-600">{p.name}</span>
+                      <span className="text-slate-600 dark:text-slate-300">{p.name}</span>
                     </div>
-                    <span className="font-medium text-slate-900">{p.value}</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">{p.value}</span>
                   </div>
                 ))}
               </div>
@@ -232,10 +243,10 @@ export default function Home() {
         )}
       </div>
 
-      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Tasks</h2>
-          <Link to="/tasks" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Recent Tasks</h2>
+          <Link to="/tasks" className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium flex items-center gap-1">
             View all <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -246,8 +257,8 @@ export default function Home() {
             {recentTasks.map(task => {
               const st = statusConfig[task.status] || statusConfig.Pending;
               return (
-                <Link key={task.id} to={`/tasks/${task.id}`} className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-slate-50 transition-colors">
-                  <span className="text-sm font-medium text-slate-700 truncate mr-2">{task.title}</span>
+                <Link key={task.id} to={`/tasks/${task.id}`} className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate mr-2">{task.title}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${st.badge}`}>{st.label}</span>
                 </Link>
               );
@@ -269,9 +280,9 @@ export default function Home() {
 
 function ReminderColumn({ title, tasks, color }) {
   const colorMap = {
-    red: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' },
-    amber: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500' },
-    blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
+    red: { bg: 'bg-red-50 dark:bg-red-500/10', text: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-red-500/20', dot: 'bg-red-500' },
+    amber: { bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-500/20', dot: 'bg-amber-500' },
+    blue: { bg: 'bg-blue-50 dark:bg-blue-500/10', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-500/20', dot: 'bg-blue-500' },
   };
   const c = colorMap[color];
   return (
@@ -286,7 +297,7 @@ function ReminderColumn({ title, tasks, color }) {
       ) : (
         <div className="space-y-1.5">
           {tasks.slice(0, 4).map(task => (
-            <Link key={task.id} to={`/tasks/${task.id}`} className="block text-sm text-slate-700 hover:underline truncate">
+            <Link key={task.id} to={`/tasks/${task.id}`} className="block text-sm text-slate-700 dark:text-slate-300 hover:underline truncate">
               {task.title}
             </Link>
           ))}

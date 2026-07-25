@@ -68,7 +68,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',  #add securityu features.
-    'corsheaders.middleware.CorsMiddleware',        
+    'corsheaders.middleware.CorsMiddleware',        #controls which domains can access your API.
     'django.contrib.sessions.middleware.SessionMiddleware',     #manage user sessions.
     'django.middleware.common.CommonMiddleware',                #common request/response tasks.
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -184,13 +184,22 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# User-uploaded files (e.g. profile avatars)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-CORS_ALLOW_ALL_ORIGINS = True
+
+# Only these origins may make cross-origin requests to the API. Add your
+# deployed frontend's URL via the FRONTEND_URL env var in production.
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    origin for origin in [
+        "http://localhost:5173",
+        os.getenv("FRONTEND_URL"),
+    ] if origin
 ]
 
 # Use bcrypt for password hashing (development). PBKDF2 remains as fallback.
@@ -213,6 +222,12 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
+    # The "auth" rate below is only applied to views that explicitly opt in
+    # via @throttle_classes([AuthRateThrottle]) (see users/throttling.py) --
+    # everything else is unaffected.
+    "DEFAULT_THROTTLE_RATES": {
+        "auth": "10/min",
+    },
 }
 
 SIMPLE_JWT = {
@@ -247,6 +262,11 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 
 # Base URL of the frontend app, used to build links sent in emails (e.g. password reset).
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+# Password reset links expire this many seconds after being sent (used by
+# django.contrib.auth.tokens.default_token_generator, which our custom
+# users.views.confirm_password_reset relies on).
+PASSWORD_RESET_TIMEOUT = 120
 
 
 #Using "Asia/Karachi" ensures reminder times match your users’ local timezone.

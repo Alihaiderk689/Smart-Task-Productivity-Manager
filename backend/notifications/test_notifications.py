@@ -16,6 +16,28 @@ def test_overdue_reminder_includes_reschedule_link(task_factory):
 
     task.refresh_from_db()
     assert task.reminder_overdue_sent is True
+    assert task.status == "Missed"
+
+
+@pytest.mark.django_db
+def test_overdue_reminder_marks_pending_task_missed(task_factory):
+    task = task_factory(status="Pending")
+
+    send_overdue_reminder(task.id, task.reminder_version)
+
+    task.refresh_from_db()
+    assert task.status == "Missed"
+
+
+@pytest.mark.django_db
+def test_overdue_reminder_does_not_override_stopped_status(task_factory):
+    task = task_factory(status="Stopped")
+
+    send_overdue_reminder(task.id, task.reminder_version)
+
+    assert len(mail.outbox) == 1
+    task.refresh_from_db()
+    assert task.status == "Stopped"
 
 
 @pytest.mark.django_db

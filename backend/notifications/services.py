@@ -15,22 +15,16 @@ class NotificationService:
     @staticmethod
     def schedule_reminders(task):
 
-        print(f"Scheduling reminders for task {task.id}")
         version = task.reminder_version
 
         # 30-minute reminder
         reminder_30 = task.start_time - timedelta(minutes=30)
-        print("Scheduling reminder for:", reminder_30)
-        print("Current time:", timezone.now())
-        print("Reminder time:", reminder_30)
 
         if reminder_30 > timezone.now():
             send_30_minute_reminder.apply_async(
                 args=[task.id, version],
                 eta=reminder_30,
             )
-        else:
-            print("Reminder time already passed")
 
         # 5-minute reminder
         reminder_5 = task.start_time - timedelta(minutes=5)

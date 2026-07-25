@@ -94,6 +94,17 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
+  // Hydrates the session from an { user, access, refresh } payload returned
+  // by an endpoint other than /login/ or /signup/ (e.g. password reset).
+  const applySession = useCallback((data) => {
+    setUser(data.user);
+    setAccessToken(data.access);
+    setRefreshToken(data.refresh);
+    setAuthSession(data);
+    setAuthError(null);
+    setAuthChecked(true);
+  }, []);
+
   const signOut = useCallback(async () => {
     try {
       if (refreshToken) {
@@ -138,6 +149,7 @@ export function AuthProvider({ children }) {
       checkUserAuth,
       logout,
       navigateToLogin,
+      applySession,
     }),
     [
       user,
@@ -154,6 +166,7 @@ export function AuthProvider({ children }) {
       checkUserAuth,
       logout,
       navigateToLogin,
+      applySession,
     ]
   );
 

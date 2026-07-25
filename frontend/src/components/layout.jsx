@@ -3,6 +3,9 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, CheckSquare, Tags, Calendar, LogOut, Menu, X, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 import { base44 } from '../api/base44Client';
 import { statusConfig, colorBgMap, getCategoryColor } from '../lib/taskUtils';
+import ThemeToggle from './theme-toggle';
+import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
+import { useAuth } from '../context/AuthContext';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -11,6 +14,8 @@ export default function Layout() {
   const [categories, setCategories] = useState([]);
   const [tasks, setTasks] = useState([]);
   const location = useLocation();
+  const { user } = useAuth();
+  const initials = (user?.first_name || user?.email || '?').trim().slice(0, 1).toUpperCase();
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -51,10 +56,10 @@ export default function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       {/* Mobile header */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 h-16 flex items-center justify-between">
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 -ml-2 text-slate-600">
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 h-16 flex items-center justify-between">
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 -ml-2 text-slate-600 dark:text-slate-300">
           {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
         <div className="flex items-center gap-2">
@@ -63,25 +68,28 @@ export default function Layout() {
           </div>
           <span className="font-bold text-lg bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">TaskFlow</span>
         </div>
-        <div className="w-8" />
+        <ThemeToggle />
       </header>
 
       {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-slate-200 transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed top-0 left-0 z-30 h-full w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 pb-24 h-full overflow-y-auto">
-          <Link to="/" className="flex items-center gap-2.5 mb-10" onClick={() => setSidebarOpen(false)}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-xl tracking-tight text-slate-900">TaskFlow</span>
-          </Link>
+          <div className="flex items-center justify-between mb-10">
+            <Link to="/" className="flex items-center gap-2.5" onClick={() => setSidebarOpen(false)}>
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-bold text-xl tracking-tight text-slate-900 dark:text-slate-100">TaskFlow</span>
+            </Link>
+            <ThemeToggle className="hidden lg:inline-flex" />
+          </div>
           <nav className="space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
               return (
                 <Link key={item.path} to={item.path} onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${active ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}>
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${active ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                   <Icon className="w-5 h-5" />
                   {item.label}
                 </Link>
@@ -90,7 +98,7 @@ export default function Layout() {
 
             {/* Categories: expandable tree of category -> tasks */}
             <div>
-              <div className={`flex items-center rounded-xl text-sm font-medium transition-all ${categoriesActive ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <div className={`flex items-center rounded-xl text-sm font-medium transition-all ${categoriesActive ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                 <Link to="/categories" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-3 py-2.5 flex-1 min-w-0">
                   <Tags className="w-5 h-5 shrink-0" />
                   <span className="truncate">Categories</span>
@@ -98,7 +106,7 @@ export default function Layout() {
                 <button
                   type="button"
                   onClick={() => setCategoriesExpanded((v) => !v)}
-                  className="p-2 mr-1.5 rounded-lg hover:bg-slate-100 text-slate-400 shrink-0"
+                  className="p-2 mr-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 shrink-0"
                   aria-label={categoriesExpanded ? 'Collapse categories' : 'Expand categories'}
                   aria-expanded={categoriesExpanded}
                 >
@@ -107,7 +115,7 @@ export default function Layout() {
               </div>
 
               {categoriesExpanded && (
-                <div className="mt-1 ml-4 pl-3 border-l border-slate-100 space-y-0.5">
+                <div className="mt-1 ml-4 pl-3 border-l border-slate-100 dark:border-slate-800 space-y-0.5">
                   {categories.filter((cat) => tasks.some((t) => t.category === cat.id)).length === 0 ? (
                     <p className="px-3 py-2 text-xs text-slate-400">No tasks yet</p>
                   ) : (
@@ -121,7 +129,7 @@ export default function Layout() {
                             <button
                               type="button"
                               onClick={() => toggleCategory(cat.id)}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50"
+                              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                             >
                               {isCatExpanded ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                               <span className={`w-2 h-2 rounded-full shrink-0 ${colorBgMap[getCategoryColor(cat.id)]}`} />
@@ -137,7 +145,7 @@ export default function Layout() {
                                       key={task.id}
                                       to={`/tasks/${task.id}`}
                                       onClick={() => setSidebarOpen(false)}
-                                      className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-600 hover:bg-slate-50 hover:text-indigo-600"
+                                      className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400"
                                     >
                                       <span className="truncate">{task.title}</span>
                                       <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${st.dot}`} title={st.label} />
@@ -155,8 +163,21 @@ export default function Layout() {
             </div>
           </nav>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-100 bg-white">
-          <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-xl w-full transition-colors">
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
+          <Link
+            to="/profile"
+            onClick={() => setSidebarOpen(false)}
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all ${location.pathname === '/profile' ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+          >
+            <Avatar className="w-7 h-7">
+              <AvatarImage src={user?.avatar} alt={user?.first_name || user?.email} />
+              <AvatarFallback className="text-xs font-semibold bg-indigo-100 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <span className="truncate">{user?.first_name || 'Profile'}</span>
+          </Link>
+          <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl w-full transition-colors">
             <LogOut className="w-5 h-5" />
             Logout
           </button>

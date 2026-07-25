@@ -12,15 +12,21 @@
 <h3>{{ task.title }}</h3>
 
 <p>
-is now <strong>overdue</strong>. The scheduled end time has passed.
+is now <strong>overdue</strong> &mdash; the scheduled time has passed and it hasn't been marked complete.
 </p>
 
 <p>
-Please complete or reschedule the task as soon as possible.
+Do you want to reschedule it?
 </p>
 
 <p>
-<a href="{{ reschedule_link }}">Click here to reschedule this task</a>
+<a href="{{ reschedule_link }}" style="display:inline-block;padding:10px 20px;background-color:#4f46e5;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+Yes, reschedule this task
+</a>
+</p>
+
+<p>
+No action needed if you'd rather leave it as is &mdash; nothing will change unless you click above.
 </p>
 
 </body>

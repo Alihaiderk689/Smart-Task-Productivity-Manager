@@ -117,7 +117,7 @@ export default function Tasks() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
       </div>
     );
   }
@@ -125,7 +125,7 @@ export default function Tasks() {
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">My Tasks</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">My Tasks</h1>
         <button onClick={() => { setEditingTask(null); setFormOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
           <Plus className="w-4 h-4" /> New Task
         </button>
@@ -134,25 +134,25 @@ export default function Tasks() {
       {/* Search */}
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by title, description, or category..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by title, description, or category..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400" />
       </div>
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex items-center gap-1.5 text-sm text-slate-500 sm:self-center">
+        <div className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 sm:self-center">
           <Filter className="w-4 h-4" /> Filters:
         </div>
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
+        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
           <option value="all">All Categories</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
+        <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
           <option value="all">All Priorities</option>
           <option value="High">High</option>
           <option value="Medium">Medium</option>
           <option value="Low">Low</option>
         </select>
-        <select value={dueDateFilter} onChange={e => setDueDateFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
+        <select value={dueDateFilter} onChange={e => setDueDateFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
           <option value="all">All Dates</option>
           <option value="today">Due Today</option>
           <option value="tomorrow">Due Tomorrow</option>
@@ -160,7 +160,7 @@ export default function Tasks() {
           <option value="overdue">Overdue</option>
         </select>
         {hasActiveFilters && (
-          <button onClick={() => { setCategoryFilter('all'); setPriorityFilter('all'); setDueDateFilter('all'); setStatusFilter('all'); setSearch(''); }} className="px-4 py-2.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors self-start sm:self-auto">
+          <button onClick={() => { setCategoryFilter('all'); setPriorityFilter('all'); setDueDateFilter('all'); setStatusFilter('all'); setSearch(''); }} className="px-4 py-2.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-xl transition-colors self-start sm:self-auto">
             Clear all
           </button>
         )}
@@ -169,14 +169,14 @@ export default function Tasks() {
       {/* Status tabs */}
       <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
         {statusTabs.map(tab => (
-          <button key={tab} onClick={() => setStatusFilter(tab)} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${statusFilter === tab ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+          <button key={tab} onClick={() => setStatusFilter(tab)} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${statusFilter === tab ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'}`}>
             {tab === 'all' ? 'All' : tab}
           </button>
         ))}
       </div>
 
       {/* Results count */}
-      <p className="text-sm text-slate-500 mb-4">{filtered.length} {filtered.length === 1 ? 'task' : 'tasks'} found</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{filtered.length} {filtered.length === 1 ? 'task' : 'tasks'} found</p>
 
       {filtered.length === 0 ? (
         <div className="text-center py-20">
@@ -193,16 +193,16 @@ export default function Tasks() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 mt-8">
-          <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 rounded-lg border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors">
-            <ChevronLeft className="w-4 h-4 text-slate-600" />
+          <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300" />
           </button>
           {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-            <button key={page} onClick={() => setCurrentPage(page)} className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${currentPage === page ? 'bg-indigo-600 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            <button key={page} onClick={() => setCurrentPage(page)} className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${currentPage === page ? 'bg-indigo-600 text-white' : 'border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
               {page}
             </button>
           ))}
-          <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 rounded-lg border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors">
-            <ChevronRight className="w-4 h-4 text-slate-600" />
+          <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300" />
           </button>
         </div>
       )}
