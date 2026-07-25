@@ -146,8 +146,38 @@ export async function signUpRequest(payload) {
 	return data;
 }
 
+export async function verifyEmailRequest({ uid, token }) {
+	const { data } = await authClient.post("/verify-email/", { uid, token });
+	return data;
+}
+
+export async function resendVerificationEmailRequest(email) {
+	const { data } = await authClient.post("/verify-email/resend/", { email });
+	return data;
+}
+
 export async function profileRequest() {
 	const { data } = await apiClient.get("/profile/");
+	return data;
+}
+
+export async function updateProfileRequest({ firstName, avatarFile }) {
+	const formData = new FormData();
+	if (firstName !== undefined) {
+		formData.append("first_name", firstName);
+	}
+	if (avatarFile) {
+		formData.append("avatar", avatarFile);
+	}
+	const { data } = await apiClient.patch("/profile/", formData);
+	return data;
+}
+
+export async function changePasswordRequest({ currentPassword, newPassword }) {
+	const { data } = await apiClient.post("/profile/change-password/", {
+		current_password: currentPassword,
+		new_password: newPassword,
+	});
 	return data;
 }
 

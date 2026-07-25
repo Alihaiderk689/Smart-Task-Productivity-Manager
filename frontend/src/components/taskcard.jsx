@@ -18,13 +18,13 @@ export default function TaskCard({ task, category, onAction, onEdit, onDelete })
   };
 
   return (
-    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow group">
       <div className="flex items-start justify-between gap-2 mb-3">
         <Link to={`/tasks/${task.id}`} className="flex-1">
-          <h3 className="font-semibold text-slate-900 hover:text-indigo-600 transition-colors">{task.title}</h3>
+          <h3 className="font-semibold text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{task.title}</h3>
         </Link>
         <DropdownMenu>
-          <DropdownMenuTrigger className="p-1 rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
+          <DropdownMenuTrigger className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
             <MoreVertical className="w-4 h-4 text-slate-400" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -38,7 +38,7 @@ export default function TaskCard({ task, category, onAction, onEdit, onDelete })
         </DropdownMenu>
       </div>
 
-      {task.description && <p className="text-sm text-slate-500 line-clamp-2 mb-3">{task.description}</p>}
+      {task.description && <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-3">{task.description}</p>}
 
       <div className="flex items-center gap-2 flex-wrap mb-4">
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${status.badge}`}>
@@ -47,13 +47,13 @@ export default function TaskCard({ task, category, onAction, onEdit, onDelete })
         </span>
         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${priority.badge}`}>{priority.label}</span>
         {category && (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
             <span className={`w-2 h-2 rounded-full ${catColor}`} />
             {category.name}
           </span>
         )}
         {task.end_time && (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
             <Calendar className="w-3 h-3" />
             {new Date(task.end_time).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
           </span>

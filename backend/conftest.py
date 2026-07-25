@@ -1,7 +1,17 @@
 import pytest
 from rest_framework.test import APIClient
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from rest_framework_simplejwt.tokens import RefreshToken
+
+@pytest.fixture(autouse=True)
+def _clear_throttle_cache():
+    # DRF throttling (see users/throttling.py) counts requests via Django's
+    # cache, which persists across tests in the same run. Without this,
+    # enough login/signup/password-reset calls across the suite trip the
+    # real rate limit and unrelated tests start failing with 429s.
+    cache.clear()
+    yield
 
 @pytest.fixture
 def api_client():

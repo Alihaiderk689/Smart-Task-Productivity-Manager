@@ -1,14 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Lock, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Lock, Loader2, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import AuthLayout from "@/components/authlayout";
+import { useAuth } from "@/context/AuthContext";
 import { confirmPasswordReset, getErrorMessage } from "@/services/api";
+
+// Must match the backend's PASSWORD_RESET_TIMEOUT (config/settings.py) so the
+// link visibly expires here at the same moment the server stops accepting it.
+const LINK_LIFETIME_SECONDS = 120;
+
+function formatCountdown(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 export default function ResetPassword() {
   const navigate = useNavigate();
+  const { applySession } = useAuth();
   const [searchParams] = useSearchParams();
   const uid = searchParams.get("uid");
   const resetToken = searchParams.get("token");
@@ -18,6 +30,21 @@ export default function ResetPassword() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(LINK_LIFETIME_SECONDS);
+
+  useEffect(() => {
+    if (!uid || !resetToken || done || secondsLeft <= 0) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => Math.max(prev - 1, 0));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [uid, resetToken, done, secondsLeft]);
+
+  const expired = secondsLeft <= 0;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,9 +55,10 @@ export default function ResetPassword() {
     }
     setLoading(true);
     try {
-      await confirmPasswordReset({ uid, token: resetToken, newPassword });
+      const data = await confirmPasswordReset({ uid, token: resetToken, newPassword });
+      applySession(data);
       setDone(true);
-      setTimeout(() => navigate("/login", { replace: true }), 2000);
+      setTimeout(() => navigate("/", { replace: true }), 2000);
     } catch (err) {
       setError(getErrorMessage(err, "Failed to reset password"));
     } finally {
@@ -61,7 +89,26 @@ export default function ResetPassword() {
     return (
       <AuthLayout icon={CheckCircle2} title="Password reset" subtitle="Your password has been updated">
         <p className="text-sm text-foreground text-center">
-          Redirecting you to the login page...
+          You're logged in. Redirecting you to your dashboard...
+        </p>
+      </AuthLayout>
+    );
+  }
+
+  if (expired) {
+    return (
+      <AuthLayout
+        icon={AlertTriangle}
+        title="Link expired"
+        subtitle="This password reset link is only valid for 2 minutes"
+        footer={
+          <Link to="/forgot-password" className="text-primary font-medium hover:underline">
+            Request a new link
+          </Link>
+        }
+      >
+        <p className="text-sm text-foreground text-center">
+          This reset link has expired. Request a new one to continue.
         </p>
       </AuthLayout>
     );
@@ -73,6 +120,12 @@ export default function ResetPassword() {
       title="New password"
       subtitle="Enter your new password below"
     >
+      <div className="mb-4 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Clock className="w-4 h-4" aria-hidden="true" />
+        <span>
+          Link expires in <span className="font-medium text-foreground">{formatCountdown(secondsLeft)}</span>
+        </span>
+      </div>
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
           {error}
@@ -112,7 +165,7 @@ export default function ResetPassword() {
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Button type="submit" className="w-full h-12 font-medium" disabled={loading || expired}>
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

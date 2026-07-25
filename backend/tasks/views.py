@@ -21,12 +21,8 @@ class TaskListCreateView(generics.ListCreateAPIView):
         return Task.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-
-        print("perform_create called")
         task = serializer.save(user=self.request.user)
-        print(f"Task created: {task.id}")
         NotificationService.schedule_reminders(task)
-        print("Finished scheduling")
 
 
 class TaskDetailView(RetrieveUpdateDestroyAPIView):
@@ -146,6 +142,7 @@ def reschedule_task(request, pk):
     task.reminder_30_sent = False
     task.reminder_5_sent = False
     task.reminder_progress_sent = False
+    task.reminder_overdue_sent = False
 
     task.reminder_version += 1
     task.rescheduled_count += 1
@@ -267,16 +264,16 @@ def stop_task(request, pk):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if task.status == "Paused":
+    if task.status == "Stopped":
         return Response(
-            {"message": "Task is already paused."},
+            {"message": "Task is already stopped."},
             status=status.HTTP_200_OK
         )
 
-    task.status = "Paused"
+    task.status = "Stopped"
     task.save()
 
     return Response({
-        "message": "Task paused successfully.",
+        "message": "Task stopped successfully.",
         "status": task.status,
     })

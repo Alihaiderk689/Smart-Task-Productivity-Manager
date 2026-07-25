@@ -109,15 +109,23 @@ def test_stop_task_success(auth_client, task_factory):
     response = auth_client.post(f"/api/tasks/{task.id}/stop/")
     assert response.status_code == status.HTTP_200_OK
     task.refresh_from_db()
-    assert task.status == "Paused"
+    assert task.status == "Stopped"
 
 @pytest.mark.django_db
-def test_stop_task_already_paused(auth_client, task_factory):
+def test_stop_task_from_paused(auth_client, task_factory):
     task = task_factory(status="Paused")
     response = auth_client.post(f"/api/tasks/{task.id}/stop/")
     assert response.status_code == status.HTTP_200_OK
     task.refresh_from_db()
-    assert task.status == "Paused"
+    assert task.status == "Stopped"
+
+@pytest.mark.django_db
+def test_stop_task_already_stopped(auth_client, task_factory):
+    task = task_factory(status="Stopped")
+    response = auth_client.post(f"/api/tasks/{task.id}/stop/")
+    assert response.status_code == status.HTTP_200_OK
+    task.refresh_from_db()
+    assert task.status == "Stopped"
 
 @pytest.mark.django_db
 def test_stop_task_rejects_completed(auth_client, task_factory):
@@ -147,3 +155,32 @@ def test_reschedule_task_success(auth_client, task_factory):
     assert task.started_at is None
     assert task.completed_at is None
     assert task.reminder_30_sent is False
+
+@pytest.mark.django_db
+def test_reschedule_task_resets_overdue_reminder_flag(auth_client, task_factory):
+    # Regression test: rescheduling an overdue task used to leave
+    # reminder_overdue_sent=True, silently suppressing the overdue email
+    # if the new deadline was also missed.
+    task = task_factory(
+        status="In Progress",
+        reminder_30_sent=True,
+        reminder_5_sent=True,
+        reminder_progress_sent=True,
+        reminder_overdue_sent=True,
+    )
+    new_start = timezone.now() + timedelta(days=1)
+    new_end = new_start + timedelta(hours=1)
+    response = auth_client.post(
+        f"/api/tasks/{task.id}/reschedule/",
+        {
+            "start_time": new_start.isoformat(),
+            "end_time": new_end.isoformat()
+        },
+        format="json"
+    )
+    assert response.status_code == status.HTTP_200_OK
+    task.refresh_from_db()
+    assert task.reminder_30_sent is False
+    assert task.reminder_5_sent is False
+    assert task.reminder_progress_sent is False
+    assert task.reminder_overdue_sent is False

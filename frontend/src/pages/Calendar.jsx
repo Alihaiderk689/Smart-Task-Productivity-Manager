@@ -55,7 +55,7 @@ export default function Calendar() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
       </div>
     );
   }
@@ -63,33 +63,33 @@ export default function Calendar() {
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Calendar</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Calendar</h1>
         <Link to="/tasks" className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
           <Plus className="w-4 h-4" /> New Task
         </Link>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-slate-100">
-          <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
-            <ChevronLeft className="w-5 h-5 text-slate-600" />
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+          <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-300" />
           </button>
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
               {currentMonth.toLocaleDateString('en', { month: 'long', year: 'numeric' })}
             </h2>
-            <button onClick={goToday} className="text-xs px-3 py-1 rounded-lg bg-indigo-50 text-indigo-600 font-medium hover:bg-indigo-100 transition-colors">
+            <button onClick={goToday} className="text-xs px-3 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-medium hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors">
               Today
             </button>
           </div>
-          <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
-            <ChevronRight className="w-5 h-5 text-slate-600" />
+          <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            <ChevronRight className="w-5 h-5 text-slate-600 dark:text-slate-300" />
           </button>
         </div>
 
-        <div className="grid grid-cols-7 border-b border-slate-100">
+        <div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800">
           {WEEKDAYS.map(day => (
-            <div key={day} className="text-center text-xs font-semibold text-slate-500 py-3 uppercase tracking-wide">
+            <div key={day} className="text-center text-xs font-semibold text-slate-500 dark:text-slate-400 py-3 uppercase tracking-wide">
               {day}
             </div>
           ))}
@@ -97,14 +97,14 @@ export default function Calendar() {
 
         <div className="grid grid-cols-7">
           {cells.map((date, i) => {
-            if (!date) return <div key={i} className="min-h-[100px] border-r border-b border-slate-50 bg-slate-50/50" />;
+            if (!date) return <div key={i} className="min-h-[100px] border-r border-b border-slate-50 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-800/20" />;
             const dayTasks = tasksForDay(date);
             const isToday = date.getTime() === today.getTime();
             const isPast = date < today && !isToday;
 
             return (
-              <div key={i} className={`min-h-[100px] border-r border-b border-slate-50 p-2 ${isToday ? 'bg-indigo-50/50' : ''}`}>
-                <div className={`text-sm font-medium mb-1 ${isToday ? 'w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center' : isPast ? 'text-slate-300' : 'text-slate-700'}`}>
+              <div key={i} className={`min-h-[100px] border-r border-b border-slate-50 dark:border-slate-800/60 p-2 ${isToday ? 'bg-indigo-50/50 dark:bg-indigo-500/10' : ''}`}>
+                <div className={`text-sm font-medium mb-1 ${isToday ? 'w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center' : isPast ? 'text-slate-300 dark:text-slate-700' : 'text-slate-700 dark:text-slate-300'}`}>
                   {date.getDate()}
                 </div>
                 <div className="space-y-1">
@@ -128,8 +128,8 @@ export default function Calendar() {
       </div>
 
       {/* Upcoming deadlines */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mt-6">
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">Upcoming Deadlines</h2>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 mt-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Upcoming Deadlines</h2>
         {(() => {
           const upcoming = tasks
             .filter(t => t.end_time && t.status !== 'Completed')
@@ -144,9 +144,9 @@ export default function Calendar() {
                 const isOverdue = daysAway < 0;
                 const isToday = daysAway === 0;
                 return (
-                  <Link key={task.id} to={`/tasks/${task.id}`} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-50 transition-colors">
-                    <span className="text-sm font-medium text-slate-700 truncate mr-2">{task.title}</span>
-                    <span className={`text-xs font-medium whitespace-nowrap ${isOverdue ? 'text-red-600' : isToday ? 'text-amber-600' : 'text-slate-500'}`}>
+                  <Link key={task.id} to={`/tasks/${task.id}`} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate mr-2">{task.title}</span>
+                    <span className={`text-xs font-medium whitespace-nowrap ${isOverdue ? 'text-red-600 dark:text-red-400' : isToday ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
                       {isOverdue ? `${Math.abs(daysAway)}d overdue` : isToday ? 'Due today' : `In ${daysAway}d`}
                     </span>
                   </Link>
