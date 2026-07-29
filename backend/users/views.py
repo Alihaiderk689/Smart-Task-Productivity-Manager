@@ -16,6 +16,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from categories.services import create_default_categories
 from notifications.email_service import EmailService
 
+from .imaging import resize_avatar_file
 from .models import Profile
 from .serializers import (
     ChangePasswordSerializer,
@@ -204,7 +205,7 @@ def profile(request):
         user.save(update_fields=["first_name"])
 
     if "avatar" in serializer.validated_data:
-        profile_obj.avatar = serializer.validated_data["avatar"]
+        profile_obj.avatar = resize_avatar_file(serializer.validated_data["avatar"])
         profile_obj.save(update_fields=["avatar"])
 
     return Response(_serialize_profile(request, user))

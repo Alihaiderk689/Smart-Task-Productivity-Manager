@@ -1,7 +1,15 @@
+from datetime import timedelta
+
 from celery import shared_task
 from django.conf import settings
+from django.utils import timezone
 from tasks.models import Task
 from .email_service import EmailService
+
+# Tasks spanning longer than this get a daily check-in email (see
+# send_daily_progress_reminders below) instead of just the one-shot
+# reminders. Shorter tasks are already fully covered by those.
+LONG_TASK_THRESHOLD = timedelta(days=1)
 
 @shared_task
 def send_5_minute_reminder(task_id, reminder_version): #this creates a celery task.
@@ -139,5 +147,50 @@ def send_progress_reminder(task_id, reminder_version):
 
     except Task.DoesNotExist:
         return
+
+
+@shared_task
+def send_daily_progress_reminders():
+    """Celery Beat sweep (schedule registered in config/celery.py) -- runs
+    once a day and emails a check-in for every multi-day task (duration >
+    LONG_TASK_THRESHOLD) that's currently active and hasn't already gotten
+    today's reminder.
+
+    Unlike the reminders above, this isn't scheduled per-task via
+    apply_async(eta=...): a 5-day task needs a *recurring* nudge, not one
+    fixed future instant, and the cadence (once a day) is the same for every
+    task regardless of its own start/end time -- exactly the case Beat is
+    for, versus apply_async's per-object one-shot scheduling.
+    """
+    now = timezone.now()
+    today = timezone.localdate()
+
+    active_tasks = Task.objects.exclude(status__in=["Completed", "Stopped", "Missed"]).filter(
+        start_time__lte=now,
+        end_time__gte=now,
+    )
+
+    for task in active_tasks:
+        if (task.end_time - task.start_time) <= LONG_TASK_THRESHOLD:
+            continue  # short tasks are already covered by the one-shot reminders
+
+        if task.last_daily_reminder_date == today:
+            continue  # already sent today's reminder
+
+        days_remaining = (timezone.localtime(task.end_time).date() - today).days
+
+        EmailService.send_email(
+            subject=f"'{task.title}' is still in progress",
+            recipient=task.user.email,
+            template_name="emails/daily_progress_reminder.html",
+            context={
+                "user": task.user,
+                "task": task,
+                "days_remaining": days_remaining,
+            },
+        )
+
+        task.last_daily_reminder_date = today
+        task.save(update_fields=["last_daily_reminder_date"])
 
 

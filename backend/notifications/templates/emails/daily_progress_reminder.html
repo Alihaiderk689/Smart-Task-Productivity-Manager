@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+
+<h2>Hello {{ user.first_name|default:user.username }},</h2>
+
+<p>Your multi-day task:</p>
+
+<h3>{{ task.title }}</h3>
+
+<p>
+is still <strong>ongoing</strong>.
+{% if days_remaining >= 1 %}
+About {{ days_remaining }} day{{ days_remaining|pluralize }} left until it's due.
+{% else %}
+It's due to end later today.
+{% endif %}
+</p>
+
+<p>
+This is a daily check-in for longer-running tasks -- no action needed if you're on track.
+</p>
+
+</body>
+</html>

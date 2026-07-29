@@ -167,6 +167,7 @@ def test_reschedule_task_resets_overdue_reminder_flag(auth_client, task_factory)
         reminder_5_sent=True,
         reminder_progress_sent=True,
         reminder_overdue_sent=True,
+        last_daily_reminder_date=timezone.localdate(),
     )
     new_start = timezone.now() + timedelta(days=1)
     new_end = new_start + timedelta(hours=1)
@@ -184,3 +185,4 @@ def test_reschedule_task_resets_overdue_reminder_flag(auth_client, task_factory)
     assert task.reminder_5_sent is False
     assert task.reminder_progress_sent is False
     assert task.reminder_overdue_sent is False
+    assert task.last_daily_reminder_date is None

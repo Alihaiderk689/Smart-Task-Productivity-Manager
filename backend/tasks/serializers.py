@@ -21,4 +21,5 @@ class TaskSerializer(serializers.ModelSerializer):
             "reminder_overdue_sent",
             "reminder_version",
             "rescheduled_count",
+            "last_daily_reminder_date",
         ]

@@ -237,6 +237,26 @@ def test_profile_update_avatar(auth_client, test_user):
     profile.avatar.delete(save=True)
 
 @pytest.mark.django_db
+def test_profile_update_avatar_is_resized(auth_client, test_user):
+    from io import BytesIO
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    buf = BytesIO()
+    Image.new("RGB", (2000, 1500), color=(50, 150, 200)).save(buf, format="JPEG")
+    avatar = SimpleUploadedFile("big.jpg", buf.getvalue(), content_type="image/jpeg")
+
+    response = auth_client.patch("/api/profile/", {"avatar": avatar}, format="multipart")
+    assert response.status_code == status.HTTP_200_OK
+
+    from users.models import Profile
+    profile = Profile.objects.get(user=test_user)
+    stored = Image.open(profile.avatar)
+    assert stored.width <= 512
+    assert stored.height <= 512
+    profile.avatar.delete(save=True)
+
+@pytest.mark.django_db
 def test_change_password_wrong_current_password(auth_client, test_user):
     response = auth_client.post(
         "/api/profile/change-password/",
