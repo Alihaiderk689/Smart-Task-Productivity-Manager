@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import DateTimePicker from '@/components/ui/datetime-picker';
 import { base44 } from '../api/base44Client';
 import { toast } from 'sonner';
 
@@ -107,11 +108,11 @@ export default function TaskForm({ open, onClose, task, categories, onSaved }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="start_time">Start</Label>
-              <Input id="start_time" type="datetime-local" value={formData.start_time} onChange={e => setFormData({ ...formData, start_time: e.target.value })} required />
+              <DateTimePicker id="start_time" value={formData.start_time} onChange={v => setFormData({ ...formData, start_time: v })} placeholder="Pick start" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="end_time">Due</Label>
-              <Input id="end_time" type="datetime-local" value={formData.end_time} onChange={e => setFormData({ ...formData, end_time: e.target.value })} required />
+              <DateTimePicker id="end_time" value={formData.end_time} onChange={v => setFormData({ ...formData, end_time: v })} placeholder="Pick due date" required />
             </div>
           </div>
           <DialogFooter>
