@@ -7,8 +7,8 @@ import { statusConfig, priorityConfig, getAvailableActions, formatDateTime } fro
 import TaskForm from '@/components/taskform';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import DateTimePicker from '@/components/ui/datetime-picker';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
 // <input type="datetime-local"> needs "yyyy-MM-ddTHH:mm" in local time.
@@ -220,11 +220,11 @@ export default function TaskDetail() {
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>New Start</Label>
-              <Input type="datetime-local" value={newStartTime} onChange={e => setNewStartTime(e.target.value)} />
+              <DateTimePicker value={newStartTime} onChange={setNewStartTime} placeholder="Pick start" />
             </div>
             <div className="space-y-2">
               <Label>New Due</Label>
-              <Input type="datetime-local" value={newEndTime} onChange={e => setNewEndTime(e.target.value)} />
+              <DateTimePicker value={newEndTime} onChange={setNewEndTime} placeholder="Pick due date" />
             </div>
           </div>
           <DialogFooter>
