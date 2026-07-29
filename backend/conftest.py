@@ -13,6 +13,14 @@ def _clear_throttle_cache():
     cache.clear()
     yield
 
+@pytest.fixture(autouse=True)
+def _use_local_file_storage(settings):
+    # Avatar uploads use Cloudinary in real environments (see
+    # config/settings.py), but tests must stay hermetic -- otherwise every
+    # test run uploads real junk images to the live Cloudinary account over
+    # the network. Force plain local storage for the duration of each test.
+    settings.DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+
 @pytest.fixture
 def api_client():
     return APIClient()

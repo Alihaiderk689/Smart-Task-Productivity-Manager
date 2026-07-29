@@ -68,6 +68,12 @@ class Task(models.Model):
     reminder_version = models.PositiveIntegerField(default=1)
     rescheduled_count = models.PositiveIntegerField(default=0)
 
+    # Multi-day tasks (duration > 1 day) get a daily "still ongoing" email via
+    # a Celery Beat sweep (notifications.tasks.send_daily_progress_reminders)
+    # instead of the one-shot apply_async reminders above. This tracks the
+    # last calendar day it was sent so the sweep doesn't double-send.
+    last_daily_reminder_date = models.DateField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

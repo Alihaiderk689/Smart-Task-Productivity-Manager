@@ -48,12 +48,14 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes', #helps understand diff django models.
     'django.contrib.sessions',  #user sessions management.
     'django.contrib.messages',  #allow django to display temporary messages.
+    'cloudinary_storage',   #must come before staticfiles -- see django-cloudinary-storage docs.
     'django.contrib.staticfiles',
+    'cloudinary',
 
     # Third-party Apps
     'rest_framework',       #run django into a RESTful API framework.
     'rest_framework_simplejwt.token_blacklist',     #blacklist functionality.
-    'corsheaders',      
+    'corsheaders',
     'django_filters',       #provides easy filtering.
     'drf_yasg',
 
@@ -184,9 +186,21 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# User-uploaded files (e.g. profile avatars)
+# User-uploaded files (e.g. profile avatars).
+# Stored on Cloudinary (free tier) when credentials are configured; falls
+# back to local disk otherwise, so the app still works without them (e.g. in
+# fresh dev setups or CI).
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
+}
+
+if all(CLOUDINARY_STORAGE.values()):
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

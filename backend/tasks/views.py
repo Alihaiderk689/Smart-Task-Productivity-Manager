@@ -143,6 +143,7 @@ def reschedule_task(request, pk):
     task.reminder_5_sent = False
     task.reminder_progress_sent = False
     task.reminder_overdue_sent = False
+    task.last_daily_reminder_date = None
 
     task.reminder_version += 1
     task.rescheduled_count += 1
