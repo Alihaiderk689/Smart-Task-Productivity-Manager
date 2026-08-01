@@ -11,6 +11,9 @@ urlpatterns = [
     path("api/dashboard/", include("dashboard.urls")),
     path("api/categories/", include("categories.urls")),
     path("api/analytics/", include("analytics.urls")),
+    path("api/admin/", include("adminpanel.urls")),
+    path("api/copilot/", include("copilot.urls")),
+    path("api/evaluation/", include("evaluation.urls")),
 ]
 
 if settings.DEBUG:

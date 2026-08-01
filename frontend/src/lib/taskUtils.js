@@ -33,11 +33,21 @@ export const getCategoryColor = (categoryId) => {
   return colorOptions[index];
 };
 
+// "Task " + action + "ed" reads fine for started/paused/resumed but breaks
+// down for "stop" ("stoped") -- and now that Stop marks the task Completed
+// (see backend/tasks/views.py's stop_task), the toast should say so.
+export const actionSuccessMessages = {
+  start: 'Task started',
+  pause: 'Task paused',
+  resume: 'Task resumed',
+  stop: 'Task completed',
+};
+
 export const getAvailableActions = (status) => {
   switch (status) {
     case 'Pending': return ['start'];
-    case 'In Progress': return ['pause', 'complete', 'stop'];
-    case 'Paused': return ['resume', 'complete', 'stop'];
+    case 'In Progress': return ['pause', 'stop'];
+    case 'Paused': return ['resume', 'stop'];
     default: return [];
   }
 };

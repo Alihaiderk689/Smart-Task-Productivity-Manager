@@ -102,9 +102,6 @@ export const base44 = {
 			async stop(taskId) {
 				return unwrap(await tasksApi.stop(taskId));
 			},
-			async complete(taskId) {
-				return unwrap(await tasksApi.complete(taskId));
-			},
 			async reschedule(taskId, payload) {
 				return unwrap(await tasksApi.reschedule(taskId, payload));
 			},

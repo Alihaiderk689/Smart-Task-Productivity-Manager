@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import {
   clearAuthSession,
+  googleLoginRequest,
   logoutRequest,
   profileRequest,
   readAuthSession,
@@ -94,6 +95,20 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
+  // `credential` is the ID token handed back by Google's Sign In With Google
+  // button (see GoogleLoginButton) -- the backend verifies it and returns the
+  // same { user, access, refresh } shape as signIn/signUp.
+  const signInWithGoogle = useCallback(async (credential) => {
+    const data = await googleLoginRequest(credential);
+    setUser(data.user);
+    setAccessToken(data.access);
+    setRefreshToken(data.refresh);
+    setAuthSession(data);
+    setAuthError(null);
+    setAuthChecked(true);
+    return data;
+  }, []);
+
   // Hydrates the session from an { user, access, refresh } payload returned
   // by an endpoint other than /login/ or /signup/ (e.g. password reset).
   const applySession = useCallback((data) => {
@@ -144,6 +159,7 @@ export function AuthProvider({ children }) {
       authChecked,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
       syncProfile,
       checkUserAuth,
@@ -161,6 +177,7 @@ export function AuthProvider({ children }) {
       authChecked,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
       syncProfile,
       checkUserAuth,

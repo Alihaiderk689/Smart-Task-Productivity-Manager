@@ -1,10 +1,15 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth import authenticate #works like a security guard.
 from django.contrib.auth.models import User #It represents the auth_user table.
 from django.contrib.auth.tokens import default_token_generator
+from django.db import IntegrityError
 from django.http import JsonResponse
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes, throttle_classes #without permission_classes, the api_view will not work.
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -18,15 +23,17 @@ from notifications.email_service import EmailService
 
 from .imaging import resize_avatar_file
 from .models import Profile
+from .otp import issue_otp, verify_otp
 from .serializers import (
     ChangePasswordSerializer,
-    EmailVerificationConfirmSerializer,
+    EmailOTPVerifySerializer,
     PasswordResetConfirmSerializer,
     ProfileUpdateSerializer,
     UserSerializer,
 )
 from .throttling import AuthRateThrottle
-from .tokens import check_email_verification_token, make_email_verification_token
+
+logger = logging.getLogger(__name__)
 
 
 def hello(request):
@@ -35,16 +42,12 @@ def hello(request):
     })
 
 
-def _send_verification_email(user):
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = make_email_verification_token(user)
-    verify_link = f"{settings.FRONTEND_URL}/verify-email?uid={uid}&token={token}"
-
+def _send_otp_email(user, code):
     EmailService.send_email(
-        subject="Verify your Smart Task Manager email",
+        subject="Your Smart Task Manager verification code",
         recipient=user.email,
-        template_name="emails/verify_email.html",
-        context={"user": user, "verify_link": verify_link},
+        template_name="emails/verify_email_otp.html",
+        context={"user": user, "code": code},
     )
 
 
@@ -52,44 +55,67 @@ def _send_verification_email(user):
 @permission_classes([AllowAny])
 @throttle_classes([AuthRateThrottle])
 def signup(request):
+    serializer = UserSerializer(data=request.data)
 
-    # Check if email already exists
-    if User.objects.filter(email=request.data.get("email")).exists():
+    if not serializer.is_valid():
+        logger.warning(
+            "Signup rejected for email=%r: %s",
+            request.data.get("email"), serializer.errors,
+        )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = serializer.save()
+    except IntegrityError:
+        # The pre-save uniqueness check in validate_email() already catches
+        # the common case -- this is only a safety net for the rare race
+        # where two signups for the same email land at nearly the same time.
+        logger.warning(
+            "Signup race: email=%r already existed by the time it was saved",
+            serializer.validated_data.get("email"),
+        )
         return Response(
-            {"message": "Email already exists."},
+            {"email": ["This email is already registered."]},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    serializer = UserSerializer(data=request.data)
+    create_default_categories(user)
+    code = issue_otp(user)
+    _send_otp_email(user, code)
+    logger.info("New account created: user_id=%s email=%r", user.id, user.email)
 
-    if serializer.is_valid():
-        user = serializer.save()
-        create_default_categories(user)
-        _send_verification_email(user)
-
-        return Response(
-            {
-                "message": "Account created! Check your email to verify your account before logging in.",
-                "user": {"id": user.id, "first_name": user.first_name, "email": user.email},
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    return Response(
+        {
+            "message": "Account created! Enter the verification code we emailed you to activate your account.",
+            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
+        },
+        status=status.HTTP_201_CREATED,
+    )
 
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([AuthRateThrottle])
 def login(request):
-    email = request.data.get("email")
+    # Signup always normalizes and stores email/username as lowercase (see
+    # UserSerializer.validate_email) -- normalize here too so login isn't
+    # case-sensitive on an address the user typed differently than at signup.
+    # (Plain strip/lower, not validators.normalize_email -- that also
+    # enforces the 254-char signup limit, which login shouldn't reject on.)
+    email = (request.data.get("email") or "").strip().lower()
     password = request.data.get("password")
 
     if not email or not password:
+        logger.info("Login rejected: missing email or password")
         return Response({"detail": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # authenticate using email as username (we set username=email on signup)
-    user = authenticate(request, username=email, password=password)
+    # Resolve the actual stored username via a case-insensitive lookup first
+    # -- covers any pre-existing account whose email/username predates
+    # lowercase normalization (see the 0006 data migration), where a direct
+    # authenticate(username=email, ...) would otherwise miss a case mismatch.
+    matched_user = User.objects.filter(email__iexact=email).first()
+    username_to_authenticate = matched_user.username if matched_user else email
+    user = authenticate(request, username=username_to_authenticate, password=password)
 
     if user is None:
         # authenticate() returns None for inactive (unverified) accounts too,
@@ -97,17 +123,19 @@ def login(request):
         # why, without revealing anything to someone just guessing passwords.
         unverified = User.objects.filter(email=email, is_active=False).first()
         if unverified is not None and unverified.check_password(password):
+            logger.info("Login blocked: email=%r has not verified yet", email)
             return Response(
-                {"detail": "Please verify your email before logging in. Check your inbox for the verification link."},
+                {"detail": "Please verify your email before logging in. Check your inbox for the verification code."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        logger.info("Login failed: invalid credentials for email=%r", email)
         return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
     refresh = RefreshToken.for_user(user)
 
     return Response(
         {
-            "user": {"id": user.id, "first_name": user.first_name, "email": user.email},
+            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
             "access": str(refresh.access_token),
             "refresh": str(refresh),
         }
@@ -117,27 +145,79 @@ def login(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([AuthRateThrottle])
-def confirm_email_verification(request):
-    serializer = EmailVerificationConfirmSerializer(data=request.data)
+def google_login(request):
+    """Exchange a Google ID token (from the frontend's "Sign in with Google"
+    button) for our own JWT pair, creating the account on first login."""
+    credential = request.data.get("credential")
+    if not credential:
+        return Response({"detail": "Google credential is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not settings.GOOGLE_CLIENT_ID:
+        return Response({"detail": "Google sign-in is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            credential, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+        )
+    except ValueError:
+        return Response({"detail": "Invalid Google credential."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    email = (payload.get("email") or "").strip().lower()
+    if not email or not payload.get("email_verified"):
+        return Response({"detail": "Google account email is not verified."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    user = User.objects.filter(email__iexact=email).first()
+
+    if user is None:
+        # password=None gives the account an unusable password -- they can
+        # only ever sign in via Google unless they later set one.
+        user = User.objects.create_user(
+            username=email,
+            email=email,
+            first_name=payload.get("given_name", ""),
+            password=None,
+            is_active=True,  # Google already verified this email address
+        )
+        create_default_categories(user)
+    elif not user.is_active:
+        # They'd signed up with email/password but never verified -- Google
+        # just proved they own the address, so unblock the account.
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+
+    refresh = RefreshToken.for_user(user)
+
+    return Response(
+        {
+            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+        }
+    )
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def verify_email_otp(request):
+    serializer = EmailOTPVerifySerializer(data=request.data)
 
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    uid = serializer.validated_data["uid"]
-    token = serializer.validated_data["token"]
+    email = serializer.validated_data["email"]
+    code = serializer.validated_data["otp"]
 
-    try:
-        user_id = force_str(urlsafe_base64_decode(uid))
-        user = User.objects.get(pk=user_id)
-    except (User.DoesNotExist, ValueError, TypeError, OverflowError):
-        return Response({"detail": "This verification link is invalid or has expired."}, status=status.HTTP_400_BAD_REQUEST)
+    user = User.objects.filter(email=email, is_active=False).first()
+    if user is None:
+        return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not check_email_verification_token(user, token):
-        return Response({"detail": "This verification link is invalid or has expired."}, status=status.HTTP_400_BAD_REQUEST)
+    ok, reason = verify_otp(user, code)
+    if not ok:
+        return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not user.is_active:
-        user.is_active = True
-        user.save(update_fields=["is_active"])
+    user.is_active = True
+    user.save(update_fields=["is_active"])
 
     # Log the user straight into their account now that it's verified.
     refresh = RefreshToken.for_user(user)
@@ -145,7 +225,7 @@ def confirm_email_verification(request):
     return Response(
         {
             "detail": "Email verified successfully.",
-            "user": {"id": user.id, "first_name": user.first_name, "email": user.email},
+            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
             "access": str(refresh.access_token),
             "refresh": str(refresh),
         },
@@ -153,7 +233,7 @@ def confirm_email_verification(request):
     )
 
 
-GENERIC_VERIFICATION_RESEND_MESSAGE = "If an account exists for that email and still needs verification, a new link has been sent."
+GENERIC_VERIFICATION_RESEND_MESSAGE = "If an account exists for that email and still needs verification, a new code has been sent."
 
 
 @api_view(["POST"])
@@ -161,7 +241,8 @@ GENERIC_VERIFICATION_RESEND_MESSAGE = "If an account exists for that email and s
 @throttle_classes([AuthRateThrottle])
 def resend_email_verification(request):
     """Always returns a generic message so we don't reveal whether a given
-    email address has an account (matches request_password_reset)."""
+    email address has an account (matches request_password_reset). Silently
+    no-ops if a code was already sent within the last minute."""
     email = request.data.get("email")
 
     if not email:
@@ -170,7 +251,9 @@ def resend_email_verification(request):
     user = User.objects.filter(email=email, is_active=False).first()
 
     if user is not None:
-        _send_verification_email(user)
+        code = issue_otp(user, respect_cooldown=True)
+        if code is not None:
+            _send_otp_email(user, code)
 
     return Response({"detail": GENERIC_VERIFICATION_RESEND_MESSAGE}, status=status.HTTP_200_OK)
 
@@ -178,7 +261,13 @@ def resend_email_verification(request):
 def _serialize_profile(request, user):
     profile_obj, _ = Profile.objects.get_or_create(user=user)
     avatar_url = request.build_absolute_uri(profile_obj.avatar.url) if profile_obj.avatar else None
-    return {"id": user.id, "first_name": user.first_name, "email": user.email, "avatar": avatar_url}
+    return {
+        "id": user.id,
+        "first_name": user.first_name,
+        "email": user.email,
+        "avatar": avatar_url,
+        "is_staff": user.is_staff,
+    }
 
 
 @api_view(["GET", "PATCH"])
@@ -309,7 +398,7 @@ def confirm_password_reset(request):
     return Response(
         {
             "detail": "Password has been reset successfully.",
-            "user": {"id": user.id, "first_name": user.first_name, "email": user.email},
+            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
             "access": str(refresh.access_token),
             "refresh": str(refresh),
         },

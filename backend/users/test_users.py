@@ -1,25 +1,37 @@
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import User
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
+
+def signup_payload(**overrides):
+    """A valid /api/signup/ payload with sensible defaults -- pass overrides
+    for the field(s) a given test actually cares about."""
+    payload = {
+        "first_name": "Test User",
+        "email": "signup-default@example.com",
+        "password": "SecurePassword123!",
+        "password_confirm": "SecurePassword123!",
+    }
+    payload.update(overrides)
+    return payload
+
 @pytest.mark.django_db
 def test_signup_success(api_client):
     response = api_client.post(
         "/api/signup/",
-        {
-            "first_name": "Alice",
-            "email": "alice@example.com",
-            "password": "SecurePassword123!"
-        },
+        signup_payload(first_name="Alice", email="alice@example.com"),
         format="json"
     )
     assert response.status_code == status.HTTP_201_CREATED
-    # No tokens yet -- account is inactive until the emailed link is verified.
+    # No tokens yet -- account is inactive until the emailed code is entered.
     assert "access" not in response.data
     assert "refresh" not in response.data
     assert response.data["user"]["email"] == "alice@example.com"
@@ -27,7 +39,7 @@ def test_signup_success(api_client):
     user = User.objects.get(email="alice@example.com")
     assert user.is_active is False
     assert len(mail.outbox) == 1
-    assert "verify" in mail.outbox[0].subject.lower()
+    assert "verification code" in mail.outbox[0].subject.lower()
 
 @pytest.mark.django_db
 def test_signup_seeds_default_categories(api_client):
@@ -36,11 +48,7 @@ def test_signup_seeds_default_categories(api_client):
 
     response = api_client.post(
         "/api/signup/",
-        {
-            "first_name": "Bob",
-            "email": "bob@example.com",
-            "password": "SecurePassword123!"
-        },
+        signup_payload(first_name="Bob", email="bob@example.com"),
         format="json"
     )
     assert response.status_code == status.HTTP_201_CREATED
@@ -61,34 +69,139 @@ def test_signup_missing_fields(api_client):
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "email" in response.data
     assert "password" in response.data
+    assert "password_confirm" in response.data
 
 @pytest.mark.django_db
 def test_signup_duplicate_email(api_client, test_user):
     response = api_client.post(
         "/api/signup/",
-        {
-            "first_name": "Another",
-            "email": test_user.email,
-            "password": "SecurePassword123!"
-        },
+        signup_payload(first_name="Another", email=test_user.email),
         format="json"
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.data["message"] == "Email already exists."
+    assert response.data["email"][0] == "This email is already registered."
+
+@pytest.mark.django_db
+def test_signup_duplicate_email_is_case_insensitive(api_client, test_user):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Another", email=test_user.email.upper()),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.data["email"][0] == "This email is already registered."
+
+@pytest.mark.django_db
+def test_signup_lowercases_and_trims_email(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(email="  Mixed.Case@Example.COM  "),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["user"]["email"] == "mixed.case@example.com"
+    assert User.objects.filter(email="mixed.case@example.com").exists()
 
 @pytest.mark.django_db
 def test_signup_password_too_short(api_client):
     response = api_client.post(
         "/api/signup/",
-        {
-            "first_name": "Alice",
-            "email": "alice@example.com",
-            "password": "sh"
-        },
+        signup_payload(password="sh", password_confirm="sh"),
         format="json"
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "password" in response.data
+
+@pytest.mark.django_db
+def test_signup_password_missing_complexity_requirements(api_client):
+    # 8+ chars but no uppercase/digit/special -- must still be rejected.
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(password="lowercaseonly", password_confirm="lowercaseonly"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "password" in response.data
+
+@pytest.mark.django_db
+def test_signup_password_with_spaces_rejected(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(password="Has Space123!", password_confirm="Has Space123!"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "password" in response.data
+
+@pytest.mark.django_db
+def test_signup_password_matching_email_rejected(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(email="Sameas@example.com", password="Sameas@example.com", password_confirm="Sameas@example.com"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "password" in response.data
+
+@pytest.mark.django_db
+def test_signup_password_confirm_mismatch(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(password="SecurePassword123!", password_confirm="Different123!"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.data["password_confirm"][0] == "Passwords do not match."
+
+@pytest.mark.django_db
+def test_signup_full_name_required(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name=""),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "first_name" in response.data
+
+@pytest.mark.django_db
+def test_signup_full_name_rejects_digits_and_symbols(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Alice123"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "first_name" in response.data
+
+@pytest.mark.django_db
+def test_signup_full_name_too_short(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="A"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "first_name" in response.data
+
+@pytest.mark.django_db
+def test_signup_full_name_allows_hyphen_and_apostrophe(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Mary-Jane O'Brien", email="maryjane@example.com"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["user"]["first_name"] == "Mary-Jane O'Brien"
+
+@pytest.mark.django_db
+def test_signup_full_name_trims_whitespace(api_client):
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="  Alice  ", email="trimname@example.com"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["user"]["first_name"] == "Alice"
 
 @pytest.mark.django_db
 def test_login_success(api_client, test_user):
@@ -117,6 +230,98 @@ def test_login_invalid_credentials(api_client, test_user):
     )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.data["detail"] == "Invalid credentials."
+
+@pytest.mark.django_db
+def test_google_login_creates_new_active_user(api_client, settings, monkeypatch):
+    from categories.models import Category
+    from categories.services import DEFAULT_CATEGORY_NAMES
+
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+    monkeypatch.setattr(
+        "users.views.google_id_token.verify_oauth2_token",
+        lambda credential, request, client_id: {
+            "email": "newgoogleuser@example.com",
+            "email_verified": True,
+            "given_name": "Gigi",
+        },
+    )
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert "access" in response.data
+    assert "refresh" in response.data
+    assert response.data["user"]["email"] == "newgoogleuser@example.com"
+    assert response.data["user"]["first_name"] == "Gigi"
+
+    user = User.objects.get(email="newgoogleuser@example.com")
+    assert user.is_active is True
+    assert user.has_usable_password() is False
+    names = set(Category.objects.filter(user=user).values_list("name", flat=True))
+    assert names == set(DEFAULT_CATEGORY_NAMES)
+
+@pytest.mark.django_db
+def test_google_login_logs_in_existing_user_without_creating_duplicate(api_client, settings, monkeypatch, test_user):
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+    monkeypatch.setattr(
+        "users.views.google_id_token.verify_oauth2_token",
+        lambda credential, request, client_id: {
+            "email": test_user.email,
+            "email_verified": True,
+            "given_name": "Test",
+        },
+    )
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["user"]["id"] == test_user.id
+    assert User.objects.filter(email=test_user.email).count() == 1
+
+@pytest.mark.django_db
+def test_google_login_rejects_unverified_email(api_client, settings, monkeypatch):
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+    monkeypatch.setattr(
+        "users.views.google_id_token.verify_oauth2_token",
+        lambda credential, request, client_id: {
+            "email": "unverified@example.com",
+            "email_verified": False,
+        },
+    )
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert not User.objects.filter(email="unverified@example.com").exists()
+
+@pytest.mark.django_db
+def test_google_login_rejects_invalid_credential(api_client, settings, monkeypatch):
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+
+    def _raise(*args, **kwargs):
+        raise ValueError("bad token")
+
+    monkeypatch.setattr("users.views.google_id_token.verify_oauth2_token", _raise)
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+@pytest.mark.django_db
+def test_google_login_requires_credential(api_client, settings):
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+
+    response = api_client.post("/api/google-login/", {}, format="json")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+@pytest.mark.django_db
+def test_google_login_returns_503_when_not_configured(api_client, settings):
+    settings.GOOGLE_CLIENT_ID = None
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
 @pytest.mark.django_db
 def test_profile_authenticated(auth_client, test_user):
@@ -309,7 +514,7 @@ def test_login_is_rate_limited_after_repeated_attempts(api_client):
 def test_login_rejects_unverified_account_with_helpful_message(api_client):
     api_client.post(
         "/api/signup/",
-        {"first_name": "Carl", "email": "carl@example.com", "password": "SecurePassword123!"},
+        signup_payload(first_name="Carl", email="carl@example.com"),
         format="json"
     )
 
@@ -325,7 +530,7 @@ def test_login_rejects_unverified_account_with_helpful_message(api_client):
 def test_login_rejects_unverified_account_with_wrong_password_generically(api_client):
     api_client.post(
         "/api/signup/",
-        {"first_name": "Carl", "email": "carl2@example.com", "password": "SecurePassword123!"},
+        signup_payload(first_name="Carl", email="carl2@example.com"),
         format="json"
     )
 
@@ -338,23 +543,20 @@ def test_login_rejects_unverified_account_with_wrong_password_generically(api_cl
     assert response.data["detail"] == "Invalid credentials."
 
 @pytest.mark.django_db
-def test_verify_email_activates_account_and_logs_in(api_client):
-    from users.tokens import make_email_verification_token
+def test_verify_email_otp_activates_account_and_logs_in(api_client, monkeypatch):
+    monkeypatch.setattr("users.otp.generate_otp_code", lambda: "123456")
 
     api_client.post(
         "/api/signup/",
-        {"first_name": "Dana", "email": "dana@example.com", "password": "SecurePassword123!"},
+        signup_payload(first_name="Dana", email="dana@example.com"),
         format="json"
     )
     user = User.objects.get(email="dana@example.com")
     assert user.is_active is False
 
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = make_email_verification_token(user)
-
     response = api_client.post(
         "/api/verify-email/",
-        {"uid": uid, "token": token},
+        {"email": "dana@example.com", "otp": "123456"},
         format="json"
     )
     assert response.status_code == status.HTTP_200_OK
@@ -372,24 +574,86 @@ def test_verify_email_activates_account_and_logs_in(api_client):
     assert login_response.status_code == status.HTTP_200_OK
 
 @pytest.mark.django_db
-def test_verify_email_rejects_invalid_token(api_client, test_user):
-    uid = urlsafe_base64_encode(force_bytes(test_user.pk))
+def test_verify_email_otp_rejects_wrong_code(api_client, monkeypatch):
+    monkeypatch.setattr("users.otp.generate_otp_code", lambda: "123456")
+
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Fay", email="fay@example.com"),
+        format="json"
+    )
 
     response = api_client.post(
         "/api/verify-email/",
-        {"uid": uid, "token": "not-a-real-token"},
+        {"email": "fay@example.com", "otp": "000000"},
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    user = User.objects.get(email="fay@example.com")
+    assert user.is_active is False
+
+@pytest.mark.django_db
+def test_verify_email_otp_rejects_expired_code(api_client, monkeypatch):
+    from users.models import EmailOTP
+
+    monkeypatch.setattr("users.otp.generate_otp_code", lambda: "123456")
+
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Gus", email="gus@example.com"),
+        format="json"
+    )
+    user = User.objects.get(email="gus@example.com")
+    EmailOTP.objects.filter(user=user).update(expires_at=timezone.now() - timedelta(seconds=1))
+
+    response = api_client.post(
+        "/api/verify-email/",
+        {"email": "gus@example.com", "otp": "123456"},
         format="json"
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 @pytest.mark.django_db
-def test_resend_email_verification_sends_new_link_for_unverified_account(api_client):
+def test_verify_email_otp_locks_after_too_many_attempts(api_client, monkeypatch):
+    monkeypatch.setattr("users.otp.generate_otp_code", lambda: "123456")
+
     api_client.post(
         "/api/signup/",
-        {"first_name": "Eve", "email": "eve@example.com", "password": "SecurePassword123!"},
+        signup_payload(first_name="Hank", email="hank@example.com"),
+        format="json"
+    )
+
+    for _ in range(5):
+        response = api_client.post(
+            "/api/verify-email/",
+            {"email": "hank@example.com", "otp": "000000"},
+            format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # Even the correct code is now rejected -- must request a new one.
+    response = api_client.post(
+        "/api/verify-email/",
+        {"email": "hank@example.com", "otp": "123456"},
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "new code" in response.data["detail"].lower()
+
+@pytest.mark.django_db
+def test_resend_email_verification_sends_new_code_once_cooldown_elapses(api_client):
+    from users.models import EmailOTP
+
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Eve", email="eve@example.com"),
         format="json"
     )
     assert len(mail.outbox) == 1
+
+    user = User.objects.get(email="eve@example.com")
+    EmailOTP.objects.filter(user=user).update(last_sent_at=timezone.now() - timedelta(seconds=61))
 
     response = api_client.post(
         "/api/verify-email/resend/",
@@ -398,6 +662,74 @@ def test_resend_email_verification_sends_new_link_for_unverified_account(api_cli
     )
     assert response.status_code == status.HTTP_200_OK
     assert len(mail.outbox) == 2
+
+@pytest.mark.django_db
+def test_resend_email_verification_locks_out_after_two_sends_in_a_cycle(api_client):
+    from users.models import EmailOTP
+
+    # Send #1 -- the signup itself.
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Jae", email="jae@example.com"),
+        format="json"
+    )
+    assert len(mail.outbox) == 1
+
+    user = User.objects.get(email="jae@example.com")
+    EmailOTP.objects.filter(user=user).update(last_sent_at=timezone.now() - timedelta(seconds=61))
+
+    # Send #2 -- the one resend they're allowed.
+    response = api_client.post("/api/verify-email/resend/", {"email": "jae@example.com"}, format="json")
+    assert response.status_code == status.HTTP_200_OK
+    assert len(mail.outbox) == 2
+
+    # A third attempt, even after the normal 60s cooldown has passed, is
+    # blocked -- they've used up both sends in this cycle.
+    EmailOTP.objects.filter(user=user).update(last_sent_at=timezone.now() - timedelta(seconds=61))
+    response = api_client.post("/api/verify-email/resend/", {"email": "jae@example.com"}, format="json")
+    assert response.status_code == status.HTTP_200_OK
+    assert len(mail.outbox) == 2
+
+@pytest.mark.django_db
+def test_resend_email_verification_allows_a_new_cycle_after_lockout_elapses(api_client):
+    from users.models import EmailOTP
+
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Kai", email="kai@example.com"),
+        format="json"
+    )
+    user = User.objects.get(email="kai@example.com")
+
+    # Simulate having already used both sends 31 minutes ago.
+    EmailOTP.objects.filter(user=user).update(
+        send_count=2,
+        last_sent_at=timezone.now() - timedelta(minutes=31),
+    )
+
+    response = api_client.post("/api/verify-email/resend/", {"email": "kai@example.com"}, format="json")
+    assert response.status_code == status.HTTP_200_OK
+    assert len(mail.outbox) == 2
+
+    otp = EmailOTP.objects.get(user=user)
+    assert otp.send_count == 1
+
+@pytest.mark.django_db
+def test_resend_email_verification_is_silently_skipped_within_cooldown(api_client):
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Ivy", email="ivy@example.com"),
+        format="json"
+    )
+    assert len(mail.outbox) == 1
+
+    response = api_client.post(
+        "/api/verify-email/resend/",
+        {"email": "ivy@example.com"},
+        format="json"
+    )
+    assert response.status_code == status.HTTP_200_OK
+    assert len(mail.outbox) == 1
 
 @pytest.mark.django_db
 def test_resend_email_verification_generic_for_unknown_email(api_client):

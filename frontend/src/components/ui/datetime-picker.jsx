@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { format, isValid, parse } from "date-fns";
 import { CalendarIcon, Clock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -13,8 +13,21 @@ const LOCAL_FORMAT = "yyyy-MM-dd'T'HH:mm";
 // of the app already stores form state as -- swap-in replacement for
 // <input type="datetime-local">, just with a real calendar + time picker
 // instead of typed digit segments.
-export default function DateTimePicker({ id, value, onChange, placeholder = "Pick a date & time", required }) {
+export default function DateTimePicker({ id, value, onChange, placeholder = "Pick a date & time", required, minDate }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+
+  const handleOpenChange = (nextOpen) => {
+    if (nextOpen) {
+      // Fields near the bottom of a tall dialog leave little room below for
+      // the calendar, forcing it to flip above the trigger and cover the
+      // dialog's own header/other fields. Centering the trigger first gives
+      // the popover room on both sides, so it only needs to flip when the
+      // viewport is genuinely too short for it either way.
+      triggerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    setOpen(nextOpen);
+  };
 
   const parsedDate = value ? parse(value, LOCAL_FORMAT, new Date()) : null;
   const selectedDate = parsedDate && isValid(parsedDate) ? parsedDate : null;
@@ -29,9 +42,10 @@ export default function DateTimePicker({ id, value, onChange, placeholder = "Pic
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           id={id}
           className={cn(
@@ -46,11 +60,12 @@ export default function DateTimePicker({ id, value, onChange, placeholder = "Pic
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="w-auto p-0" align="start" collisionPadding={16}>
         <Calendar
           mode="single"
           selected={selectedDate || undefined}
           onSelect={(date) => commit(date, timeValue || "09:00")}
+          disabled={minDate ? { before: minDate } : undefined}
           initialFocus
         />
         <div className="flex items-center gap-2 border-t border-border p-3">

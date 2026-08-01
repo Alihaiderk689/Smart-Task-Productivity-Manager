@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { base44 } from '../api/base44Client';
 import { toast } from 'sonner';
-import { ArrowLeft, Play, Pause, CheckCircle2, Square, CalendarClock, Pencil, Trash2, Calendar, Tag, Flag } from 'lucide-react';
-import { statusConfig, priorityConfig, getAvailableActions, formatDateTime } from '../lib/taskUtils';
+import { ArrowLeft, Play, Pause, Square, CalendarClock, Pencil, Trash2, Calendar, Tag, Flag } from 'lucide-react';
+import { statusConfig, priorityConfig, getAvailableActions, formatDateTime, actionSuccessMessages } from '../lib/taskUtils';
 import TaskForm from '@/components/taskform';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -61,7 +61,7 @@ export default function TaskDetail() {
   const handleAction = async (action) => {
     try {
       await base44.entities.Task[action](task.id);
-      toast.success(`Task ${action}ed`);
+      toast.success(actionSuccessMessages[action] || 'Task updated');
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to update task');
@@ -119,7 +119,6 @@ export default function TaskDetail() {
     pause: { label: 'Pause', icon: Pause, class: 'bg-orange-500 hover:bg-orange-600' },
     resume: { label: 'Resume', icon: Play, class: 'bg-indigo-600 hover:bg-indigo-700' },
     stop: { label: 'Stop', icon: Square, class: 'bg-red-500 hover:bg-red-600' },
-    complete: { label: 'Complete', icon: CheckCircle2, class: 'bg-emerald-600 hover:bg-emerald-700' },
   };
 
   return (
