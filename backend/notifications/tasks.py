@@ -1,3 +1,5 @@
+import logging
+import smtplib
 from datetime import timedelta
 
 from celery import shared_task
@@ -6,12 +8,31 @@ from django.utils import timezone
 from tasks.models import Task
 from .email_service import EmailService
 
+logger = logging.getLogger(__name__)
+
 # Tasks spanning longer than this get a daily check-in email (see
 # send_daily_progress_reminders below) instead of just the one-shot
 # reminders. Shorter tasks are already fully covered by those.
 LONG_TASK_THRESHOLD = timedelta(days=1)
 
-@shared_task
+# Transient failures worth retrying an email send for (SMTP hiccup, DNS
+# blip, connection reset) -- deliberately not a bare `Exception`, so a real
+# bug in our own code fails fast and shows up in logs instead of quietly
+# retrying 3 times and burying the traceback.
+EMAIL_TRANSIENT_ERRORS = (smtplib.SMTPException, ConnectionError, TimeoutError, OSError)
+
+# Shared retry policy for the one-shot per-task reminders below: back off
+# exponentially, cap the wait, give up after 3 attempts (the 4th failure is
+# logged and the reminder is lost -- there's no 4th automatic attempt).
+RETRY_KWARGS = dict(
+    autoretry_for=EMAIL_TRANSIENT_ERRORS,
+    retry_backoff=True,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+
+
+@shared_task(**RETRY_KWARGS)
 def send_5_minute_reminder(task_id, reminder_version): #this creates a celery task.
 
     try: #this is a try block that attempts to retrieve the task from the database using the provided task_id.
@@ -40,7 +61,7 @@ def send_5_minute_reminder(task_id, reminder_version): #this creates a celery ta
 
 
 
-@shared_task
+@shared_task(**RETRY_KWARGS)
 def send_overdue_reminder(task_id, reminder_version):
 
     try:
@@ -80,7 +101,7 @@ def send_overdue_reminder(task_id, reminder_version):
 
 
 
-@shared_task
+@shared_task(**RETRY_KWARGS)
 def send_30_minute_reminder(task_id, reminder_version):
     try:
         task = Task.objects.get(id=task_id)
@@ -117,7 +138,7 @@ def send_test_email(recipient_email):
 
     EmailService.send_test_email(recipient_email)
 
-@shared_task
+@shared_task(**RETRY_KWARGS)
 def send_progress_reminder(task_id, reminder_version):
 
     try:
@@ -149,7 +170,7 @@ def send_progress_reminder(task_id, reminder_version):
         return
 
 
-@shared_task
+@shared_task(autoretry_for=(Exception,), retry_backoff=True, retry_backoff_max=600, max_retries=3)
 def send_daily_progress_reminders():
     """Celery Beat sweep (schedule registered in config/celery.py) -- runs
     once a day and emails a check-in for every multi-day task (duration >
@@ -161,6 +182,13 @@ def send_daily_progress_reminders():
     fixed future instant, and the cadence (once a day) is the same for every
     task regardless of its own start/end time -- exactly the case Beat is
     for, versus apply_async's per-object one-shot scheduling.
+
+    The task-level retry above covers a failure before/between recipients
+    (e.g. the initial query). Each individual send is additionally wrapped
+    in its own try/except so one user's failed email doesn't block or delay
+    everyone else's in the same run -- a skipped one just gets a fresh
+    attempt on tomorrow's sweep instead of tonight's retry re-processing an
+    already-successful batch.
     """
     now = timezone.now()
     today = timezone.localdate()
@@ -177,20 +205,24 @@ def send_daily_progress_reminders():
         if task.last_daily_reminder_date == today:
             continue  # already sent today's reminder
 
-        days_remaining = (timezone.localtime(task.end_time).date() - today).days
+        try:
+            days_remaining = (timezone.localtime(task.end_time).date() - today).days
 
-        EmailService.send_email(
-            subject=f"'{task.title}' is still in progress",
-            recipient=task.user.email,
-            template_name="emails/daily_progress_reminder.html",
-            context={
-                "user": task.user,
-                "task": task,
-                "days_remaining": days_remaining,
-            },
-        )
+            EmailService.send_email(
+                subject=f"'{task.title}' is still in progress",
+                recipient=task.user.email,
+                template_name="emails/daily_progress_reminder.html",
+                context={
+                    "user": task.user,
+                    "task": task,
+                    "days_remaining": days_remaining,
+                },
+            )
 
-        task.last_daily_reminder_date = today
-        task.save(update_fields=["last_daily_reminder_date"])
+            task.last_daily_reminder_date = today
+            task.save(update_fields=["last_daily_reminder_date"])
+        except Exception:
+            logger.exception("Failed to send daily progress reminder for task %s", task.id)
+            continue
 
 

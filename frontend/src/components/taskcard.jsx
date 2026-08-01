@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Play, Pause, CheckCircle2, Square, MoreVertical, Calendar, Pencil, Trash2 } from 'lucide-react';
+import { Play, Pause, Square, MoreVertical, Calendar, Pencil, Trash2 } from 'lucide-react';
 import { statusConfig, priorityConfig, colorBgMap, getAvailableActions, getCategoryColor } from '../lib/taskUtils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
@@ -14,7 +14,6 @@ export default function TaskCard({ task, category, onAction, onEdit, onDelete })
     pause: { label: 'Pause', icon: Pause, class: 'bg-orange-500 hover:bg-orange-600' },
     resume: { label: 'Resume', icon: Play, class: 'bg-indigo-600 hover:bg-indigo-700' },
     stop: { label: 'Stop', icon: Square, class: 'bg-red-500 hover:bg-red-600' },
-    complete: { label: 'Complete', icon: CheckCircle2, class: 'bg-emerald-600 hover:bg-emerald-700' },
   };
 
   return (

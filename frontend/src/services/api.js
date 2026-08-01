@@ -17,7 +17,11 @@ const apiClient = axios.create({
 export function getErrorMessage(err, fallback) {
 	const data = err.response?.data;
 
-	if (!data) {
+	// A non-JSON error body (an HTML 500 page, a proxy's plaintext error,
+	// etc.) is a string here, not an object. Without this check,
+	// Object.values() below would treat it as an array of individual
+	// characters and join them all back into a garbled "message".
+	if (!data || typeof data !== "object") {
 		return err.message || fallback;
 	}
 
@@ -32,6 +36,29 @@ export function getErrorMessage(err, fallback) {
 	}
 
 	return err.message || fallback;
+}
+
+// Maps a DRF field-keyed error response (e.g. {"email": ["This email is
+// already registered."]}) to { email: "This email is already registered." }
+// so a form can highlight the specific field instead of only showing one
+// generic banner. Returns {} for non-field errors (a "detail" string, a
+// non-JSON body, etc.) -- callers should fall back to getErrorMessage then.
+export function getFieldErrors(err) {
+	const data = err.response?.data;
+
+	if (!data || typeof data !== "object" || typeof data.detail === "string") {
+		return {};
+	}
+
+	const fieldErrors = {};
+	for (const [field, value] of Object.entries(data)) {
+		if (Array.isArray(value) && typeof value[0] === "string") {
+			fieldErrors[field] = value[0];
+		} else if (typeof value === "string") {
+			fieldErrors[field] = value;
+		}
+	}
+	return fieldErrors;
 }
 
 function readJSON(key) {
@@ -146,8 +173,13 @@ export async function signUpRequest(payload) {
 	return data;
 }
 
-export async function verifyEmailRequest({ uid, token }) {
-	const { data } = await authClient.post("/verify-email/", { uid, token });
+export async function googleLoginRequest(credential) {
+	const { data } = await authClient.post("/google-login/", { credential });
+	return data;
+}
+
+export async function verifyEmailOtpRequest({ email, otp }) {
+	const { data } = await authClient.post("/verify-email/", { email, otp });
 	return data;
 }
 
@@ -228,9 +260,6 @@ export const tasksApi = {
 	stop(taskId) {
 		return apiClient.post(`/tasks/${taskId}/stop/`);
 	},
-	complete(taskId) {
-		return apiClient.post(`/tasks/${taskId}/complete/`);
-	},
 	reschedule(taskId, payload) {
 		return apiClient.post(`/tasks/${taskId}/reschedule/`, payload);
 	},
@@ -266,5 +295,111 @@ export const dashboardApi = {
 	},
 	missed() {
 		return apiClient.get("/dashboard/missed/");
+	},
+};
+
+export const adminApi = {
+	overview() {
+		return apiClient.get("/admin/overview/");
+	},
+	systemStatus() {
+		return apiClient.get("/admin/system-status/");
+	},
+	users(params) {
+		return apiClient.get("/admin/users/", { params });
+	},
+	userDetail(userId) {
+		return apiClient.get(`/admin/users/${userId}/`);
+	},
+	userTasks(userId) {
+		return apiClient.get(`/admin/users/${userId}/tasks/`);
+	},
+	deactivateUser(userId) {
+		return apiClient.post(`/admin/users/${userId}/deactivate/`);
+	},
+	activateUser(userId) {
+		return apiClient.post(`/admin/users/${userId}/activate/`);
+	},
+	deleteUser(userId) {
+		return apiClient.delete(`/admin/users/${userId}/delete/`);
+	},
+	categoryNames() {
+		return apiClient.get("/admin/categories/names/");
+	},
+	tasks(params) {
+		return apiClient.get("/admin/tasks/", { params });
+	},
+	taskDetail(taskId) {
+		return apiClient.get(`/admin/tasks/${taskId}/`);
+	},
+	updateTask(taskId, payload) {
+		return apiClient.patch(`/admin/tasks/${taskId}/`, payload);
+	},
+	deleteTask(taskId) {
+		return apiClient.delete(`/admin/tasks/${taskId}/`);
+	},
+	triggerReminder(taskId, type) {
+		return apiClient.post(`/admin/tasks/${taskId}/trigger-reminder/`, { type });
+	},
+	async downloadReport(kind) {
+		const { data } = await apiClient.get(`/admin/reports/${kind}.csv`, { responseType: "blob" });
+		const url = window.URL.createObjectURL(data);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = `${kind}.csv`;
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		window.URL.revokeObjectURL(url);
+	},
+};
+
+export const copilotApi = {
+	dashboardSummary() {
+		return apiClient.get("/copilot/dashboard-summary/");
+	},
+	agentStatus() {
+		return apiClient.get("/copilot/agent-status/");
+	},
+	runAgent(agentName) {
+		return apiClient.post(`/copilot/agents/${agentName}/run/`);
+	},
+	runs(params) {
+		return apiClient.get("/copilot/runs/", { params });
+	},
+	runDetail(runId) {
+		return apiClient.get(`/copilot/runs/${runId}/`);
+	},
+	recommendations(params) {
+		return apiClient.get("/copilot/recommendations/", { params });
+	},
+	approveRecommendation(id) {
+		return apiClient.post(`/copilot/recommendations/${id}/approve/`);
+	},
+	rejectRecommendation(id) {
+		return apiClient.post(`/copilot/recommendations/${id}/reject/`);
+	},
+	chatSend(message, sessionId) {
+		return apiClient.post("/copilot/chat/send/", { message, session_id: sessionId });
+	},
+	chatHistory(sessionId) {
+		return apiClient.get("/copilot/chat/history/", { params: { session_id: sessionId } });
+	},
+};
+
+export const evaluationApi = {
+	// Runs the full ~20-scenario suite synchronously (real Groq calls) --
+	// can take tens of seconds, callers should show a running state.
+	trigger() {
+		return apiClient.post("/evaluation/run/");
+	},
+	runs() {
+		return apiClient.get("/evaluation/runs/");
+	},
+	runDetail(runId) {
+		return apiClient.get(`/evaluation/runs/${runId}/`);
+	},
+	summary() {
+		return apiClient.get("/evaluation/summary/");
 	},
 };

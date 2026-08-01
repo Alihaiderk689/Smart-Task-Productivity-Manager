@@ -1,10 +1,11 @@
-import { Toaster } from "./components/ui/toaster"
+import { Toaster } from "./components/ui/sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from './lib/query-client.jsx'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import UserNotRegisteredError from './components/UserNotRegisteredError';
 import ScrollToTop from './components/scrolltotop';
 // Add page imports here
@@ -14,13 +15,20 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/Resetpassword';
 import VerifyEmail from './pages/VerifyEmail';
 import ProtectedRoute from './components/Protectedroute';
+import RoleRoute from './components/RoleRoute';
 import Layout from './components/layout';
+import AdminLayout from './components/AdminLayout';
 import Home from './pages/Home';
 import Tasks from './pages/Tasks';
 import TaskDetail from './pages/TaskDetail';
 import Categories from './pages/Categories';
 import CalendarPage from './pages/Calendar';
 import Profile from './pages/Profile';
+import Admin from './pages/Admin';
+import AdminTasks from './pages/AdminTasks';
+import AdminProfile from './pages/AdminProfile';
+import AdminCopilot from './pages/AdminCopilot';
+import AdminEvaluation from './pages/AdminEvaluation';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -54,13 +62,24 @@ const AuthenticatedApp = () => {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route element={<ProtectedRoute />}>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/tasks" element={<Tasks />} />
-          <Route path="/tasks/:id" element={<TaskDetail />} />
-          <Route path="/categories" element={<Categories />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/profile" element={<Profile />} />
+        <Route element={<RoleRoute allow="staff" />}>
+          <Route element={<AdminLayout />}>
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/tasks" element={<AdminTasks />} />
+            <Route path="/admin/copilot" element={<AdminCopilot />} />
+            <Route path="/admin/evaluation" element={<AdminEvaluation />} />
+            <Route path="/admin/profile" element={<AdminProfile />} />
+          </Route>
+        </Route>
+        <Route element={<RoleRoute allow="user" />}>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/tasks/:id" element={<TaskDetail />} />
+            <Route path="/categories" element={<Categories />} />
+            <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/profile" element={<Profile />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />
@@ -72,17 +91,19 @@ const AuthenticatedApp = () => {
 function App() {
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <Router>
-            <ScrollToTop />
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
-        </QueryClientProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <QueryClientProvider client={queryClientInstance}>
+            <Router>
+              <ScrollToTop />
+              <AuthenticatedApp />
+            </Router>
+            <Toaster />
+          </QueryClientProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   )
 }
 

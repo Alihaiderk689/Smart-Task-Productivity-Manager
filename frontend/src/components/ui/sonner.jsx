@@ -1,11 +1,15 @@
 "use client";
-import { useTheme } from "next-themes"
+import { useTheme } from "@/context/ThemeContext"
 import { Toaster as Sonner } from "sonner"
 
 const Toaster = ({
   ...props
 }) => {
-  const { theme = "system" } = useTheme()
+  // This app manages its own light/dark state (ThemeContext), not
+  // next-themes -- that package was never actually wired up (no provider
+  // mounted), so useTheme() from it silently returns the "system" fallback
+  // forever and toasts never actually followed the in-app theme toggle.
+  const { theme } = useTheme()
 
   return (
     (<Sonner

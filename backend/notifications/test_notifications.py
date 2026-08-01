@@ -173,3 +173,66 @@ def test_daily_reminder_is_registered_in_beat_schedule():
 
     entry = app.conf.beat_schedule["send-daily-progress-reminders"]
     assert entry["task"] == "notifications.tasks.send_daily_progress_reminders"
+
+
+@pytest.mark.parametrize(
+    "task_name",
+    [
+        "send_5_minute_reminder",
+        "send_30_minute_reminder",
+        "send_progress_reminder",
+        "send_overdue_reminder",
+        "send_daily_progress_reminders",
+    ],
+)
+def test_reminder_tasks_are_configured_to_retry(task_name):
+    from notifications import tasks
+
+    task = getattr(tasks, task_name)
+
+    assert task.max_retries == 3
+    assert task.retry_backoff is True
+    # send_daily_progress_reminders retries on any failure (a broken query
+    # affects the whole sweep); the per-task reminders only retry on
+    # transient email-sending errors, not on a bug in our own code.
+    if task_name == "send_daily_progress_reminders":
+        assert task.autoretry_for == (Exception,)
+    else:
+        assert task.autoretry_for == tasks.EMAIL_TRANSIENT_ERRORS
+
+
+@pytest.mark.django_db
+def test_daily_reminder_one_failure_does_not_block_others(task_factory, monkeypatch):
+    now = timezone.now()
+    failing_task = task_factory(
+        title="Failing task",
+        status="In Progress",
+        start_time=now - timedelta(days=1),
+        end_time=now + timedelta(days=3),
+    )
+    healthy_task = task_factory(
+        title="Healthy task",
+        status="In Progress",
+        start_time=now - timedelta(days=1),
+        end_time=now + timedelta(days=3),
+    )
+
+    from notifications import tasks as notifications_tasks
+
+    original_send_email = notifications_tasks.EmailService.send_email
+
+    def flaky_send_email(subject, recipient, template_name, context):
+        if context["task"].id == failing_task.id:
+            raise TimeoutError("SMTP timed out")
+        return original_send_email(subject, recipient, template_name, context)
+
+    monkeypatch.setattr(notifications_tasks.EmailService, "send_email", staticmethod(flaky_send_email))
+
+    send_daily_progress_reminders()
+
+    failing_task.refresh_from_db()
+    healthy_task.refresh_from_db()
+
+    assert failing_task.last_daily_reminder_date is None
+    assert healthy_task.last_daily_reminder_date == timezone.localdate()
+    assert len(mail.outbox) == 1

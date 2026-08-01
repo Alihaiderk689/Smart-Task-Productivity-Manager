@@ -4,6 +4,7 @@ import { Plus, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import TaskCard from '@/components/taskcard';
 import TaskForm from '@/components/taskform';
+import { actionSuccessMessages } from '@/lib/taskUtils';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
 const PAGE_SIZE = 9;
@@ -40,7 +41,7 @@ export default function Tasks() {
   const handleAction = async (action, task) => {
     try {
       await base44.entities.Task[action](task.id);
-      toast.success(`Task ${action}ed`);
+      toast.success(actionSuccessMessages[action] || 'Task updated');
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to update task');
@@ -142,6 +143,11 @@ export default function Tasks() {
         <div className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 sm:self-center">
           <Filter className="w-4 h-4" /> Filters:
         </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
+          {statusTabs.map(tab => (
+            <option key={tab} value={tab}>{tab === 'all' ? 'All Statuses' : tab}</option>
+          ))}
+        </select>
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400">
           <option value="all">All Categories</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -164,15 +170,6 @@ export default function Tasks() {
             Clear all
           </button>
         )}
-      </div>
-
-      {/* Status tabs */}
-      <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
-        {statusTabs.map(tab => (
-          <button key={tab} onClick={() => setStatusFilter(tab)} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${statusFilter === tab ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'}`}>
-            {tab === 'all' ? 'All' : tab}
-          </button>
-        ))}
       </div>
 
       {/* Results count */}

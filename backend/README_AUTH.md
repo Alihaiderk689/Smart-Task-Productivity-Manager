@@ -4,11 +4,19 @@ Endpoints
 
 - POST /api/signup/
   - Body: {"first_name":"Alice","email":"alice@example.com","password":"secret"}
-  - Returns: user info + `access` and `refresh` JWT tokens
+  - Creates the account (inactive) and emails a 6-digit verification code. Returns user info only -- no tokens yet.
+
+- POST /api/verify-email/
+  - Body: {"email":"alice@example.com","otp":"123456"}
+  - Activates the account if the code is correct and not expired (10 min TTL, 5 wrong guesses locks it -- request a new code). Returns user info + `access` and `refresh` JWT tokens, logging them in.
+
+- POST /api/verify-email/resend/
+  - Body: {"email":"alice@example.com"}
+  - Always returns a generic message (doesn't reveal whether the account exists). Sends a new code unless one was already sent in the last 60 seconds.
 
 - POST /api/login/
   - Body: {"email":"alice@example.com","password":"secret"}
-  - Returns: user info + `access` and `refresh` JWT tokens
+  - Returns: user info + `access` and `refresh` JWT tokens (403 if the account hasn't completed email verification yet)
 
 - GET /api/profile/
   - Protected: send header `Authorization: Bearer <access>`
@@ -21,6 +29,13 @@ Endpoints
 - POST /api/logout/
   - Body: {"refresh": "<refresh_token>"}
   - Blacklists the refresh token (logout)
+
+- POST /api/google-login/
+  - Body: {"credential": "<Google ID token>"}
+  - Verifies the ID token from Google's "Sign in with Google" button, creates
+    the account on first login (email/name from the token, no password), and
+    returns user info + `access` and `refresh` JWT tokens -- same shape as
+    /api/login/.
 
 Local setup
 
@@ -41,6 +56,13 @@ cp .env.example .env
 ```
 
 2. When `POSTGRES_DB` is set in `.env`, the project will use Postgres; otherwise it will use SQLite (`db.sqlite3`).
+
+Google sign-in setup
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type "Web application".
+2. Add these to **Authorized JavaScript origins**: `http://localhost:5173` (dev) and your deployed frontend URL.
+3. Copy the generated client ID into `GOOGLE_CLIENT_ID` in `backend/.env` and `VITE_GOOGLE_CLIENT_ID` in `frontend/.env` (same value in both).
+4. Restart both dev servers. The "Or continue with Google" button on the login/register pages is hidden automatically when `VITE_GOOGLE_CLIENT_ID` is blank.
 
 Frontend example files are available in the `frontend_examples/` folder. There is an `auth.js` helper showing `signup`, `login`, `refreshToken`, `logout`, and `profile` usage.
 

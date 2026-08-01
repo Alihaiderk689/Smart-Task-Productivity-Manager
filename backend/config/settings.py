@@ -34,7 +34,12 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+# Was reading DJANGO_DEBUG, but .env (and .env.example) set DEBUG -- that
+# mismatch meant this always silently fell back to the True default no
+# matter what was in .env. Comparison is also case-insensitive now: it was
+# checking equality against the literal 'True', which silently evaluated to
+# False for the far more common "DEBUG=true" (lowercase) convention.
+DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
 ALLOWED_HOSTS = []
 
@@ -66,6 +71,9 @@ INSTALLED_APPS = [
     'dashboard',        #statistics and summary infomation.
     'core',
     "notifications",    #responsible for notifications.
+    "adminpanel",       #staff-only oversight dashboard (users, tasks, stats).
+    "copilot",          #AI admin copilot: agents, tools, and their execution logs.
+    "evaluation",       #automated evaluation harness that measures the copilot's own behavior.
 ]
 
 MIDDLEWARE = [
@@ -225,6 +233,7 @@ AUTH_PASSWORD_HASHERS = [
 
 
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "config.exception_handler.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
@@ -277,6 +286,17 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 # Base URL of the frontend app, used to build links sent in emails (e.g. password reset).
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+# OAuth client ID from Google Cloud Console, used to verify the ID token sent
+# by "Sign in with Google" on the frontend (see users.views.google_login).
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+
+# Groq API key powering the Admin Copilot's LLM reasoning (see
+# copilot/llm/client.py). Left blank, the copilot still runs its
+# deterministic checks/tools but skips LLM-generated reasoning/chat --
+# see GroqClient.is_configured.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
+
 # Password reset links expire this many seconds after being sent (used by
 # django.contrib.auth.tokens.default_token_generator, which our custom
 # users.views.confirm_password_reset relies on).
@@ -291,3 +311,34 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Asia/Karachi"
 CELERY_ENABLE_UTC = True
+
+# Console logging so unhandled exceptions (see config/exception_handler.py)
+# and Celery task failures are actually visible in the terminal running
+# runserver / the worker, instead of relying on Django's sparse defaults.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
