@@ -66,40 +66,6 @@ def start_task(request, pk):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def complete_task(request, pk):
-    try:
-        task = Task.objects.get(pk=pk, user=request.user)
-    except Task.DoesNotExist:
-        return Response(
-            {"error": "Task not found."},
-            status=status.HTTP_404_NOT_FOUND
-        )
-
-    if task.status == "Completed":
-        return Response(
-            {"message": "Task is already completed."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    if task.status == "Pending":
-        return Response(
-            {"message": "Start the task before completing it."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    task.status = "Completed"
-    task.completed_at = timezone.now()
-    task.save()
-
-    return Response({
-        "message": "Task completed successfully.",
-        "status": task.status,
-        "completed_at": task.completed_at,
-    })
-
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
 def reschedule_task(request, pk):
     try:
         task = Task.objects.get(pk=pk, user=request.user)
@@ -131,6 +97,18 @@ def reschedule_task(request, pk):
         parsed_start_time = timezone.make_aware(parsed_start_time, timezone.get_current_timezone())
     if timezone.is_naive(parsed_end_time):
         parsed_end_time = timezone.make_aware(parsed_end_time, timezone.get_current_timezone())
+
+    if parsed_start_time <= timezone.now():
+        return Response(
+            {"error": "Start time cannot be in the past."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if parsed_end_time <= parsed_start_time:
+        return Response(
+            {"error": "End time must be after the start time."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     task.start_time = parsed_start_time
     task.end_time = parsed_end_time
@@ -251,6 +229,10 @@ def resume_task(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def stop_task(request, pk):
+    """Ends a task by marking it Completed. "Stop" and "Complete" used to be
+    separate actions (with separate statuses, Stopped vs Completed), but
+    they meant the same thing to users -- this is now the only way to end
+    an active task, so it does what /complete/ used to do."""
     try:
         task = Task.objects.get(pk=pk, user=request.user)
     except Task.DoesNotExist:
@@ -261,20 +243,22 @@ def stop_task(request, pk):
 
     if task.status == "Completed":
         return Response(
-            {"error": "Completed tasks cannot be stopped."},
+            {"message": "Task is already completed."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if task.status == "Stopped":
+    if task.status == "Pending":
         return Response(
-            {"message": "Task is already stopped."},
-            status=status.HTTP_200_OK
+            {"message": "Start the task before completing it."},
+            status=status.HTTP_400_BAD_REQUEST
         )
 
-    task.status = "Stopped"
+    task.status = "Completed"
+    task.completed_at = timezone.now()
     task.save()
 
     return Response({
-        "message": "Task stopped successfully.",
+        "message": "Task completed successfully.",
         "status": task.status,
+        "completed_at": task.completed_at,
     })

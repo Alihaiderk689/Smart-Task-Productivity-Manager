@@ -21,6 +21,15 @@ def _use_local_file_storage(settings):
     # the network. Force plain local storage for the duration of each test.
     settings.DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
+@pytest.fixture(autouse=True)
+def _no_real_llm_key(settings):
+    # backend/.env carries a real GROQ_API_KEY for the running app, but
+    # tests must stay hermetic -- otherwise any copilot test that forgets
+    # to mock the LLM silently makes a real network call to Groq. Force it
+    # unset by default; tests that specifically exercise the "configured"
+    # path set settings.GROQ_API_KEY back explicitly within the test.
+    settings.GROQ_API_KEY = ""
+
 @pytest.fixture
 def api_client():
     return APIClient()
@@ -39,6 +48,32 @@ def test_user(db):
 @pytest.fixture
 def auth_client(api_client, test_user):
     refresh = RefreshToken.for_user(test_user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+    return api_client
+
+@pytest.fixture
+def other_user(db):
+    # A second, distinct account -- for proving one user's authenticated
+    # session can't reach another user's data (object-level authorization,
+    # not just "is someone logged in").
+    return User.objects.create_user(
+        username="otheruser@example.com",
+        email="otheruser@example.com",
+        password="OtherPass123!"
+    )
+
+@pytest.fixture
+def staff_user(db):
+    return User.objects.create_user(
+        username="staffuser@example.com",
+        email="staffuser@example.com",
+        password="StaffPass123!",
+        is_staff=True,
+    )
+
+@pytest.fixture
+def staff_client(api_client, staff_user):
+    refresh = RefreshToken.for_user(staff_user)
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
     return api_client
 

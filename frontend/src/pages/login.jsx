@@ -3,13 +3,21 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
+import { LogIn, Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import AuthLayout from "@/components/authlayout";
+import GoogleLoginButton from "@/components/GoogleLoginButton";
 import { useAuth } from "@/context/AuthContext";
-import { getErrorMessage, resendVerificationEmailRequest } from "@/services/api";
+import { getErrorMessage } from "@/services/api";
 
 // Only allow redirecting back to a same-app path, never to an external URL.
-function getRedirectDestination(location) {
+// Staff accounts always land on /admin -- RoleRoute would bounce them there
+// anyway if "from" pointed at a regular page, so decide it up front instead
+// of letting them flash the wrong page first.
+function getRedirectDestination(location, isStaff) {
+  if (isStaff) {
+    return "/admin";
+  }
+
   const stateFrom = location.state?.from;
   if (typeof stateFrom === "string" && stateFrom.startsWith("/")) {
     return stateFrom;
@@ -32,18 +40,16 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
-  const [resendSent, setResendSent] = useState(false);
-  const [resending, setResending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setNeedsVerification(false);
-    setResendSent(false);
     setLoading(true);
     try {
-      await signIn({ email, password });
-      navigate(getRedirectDestination(location), { replace: true });
+      const data = await signIn({ email: email.trim().toLowerCase(), password });
+      navigate(getRedirectDestination(location, data.user?.is_staff), { replace: true });
     } catch (err) {
       setError(getErrorMessage(err, "Invalid email or password"));
       if (err.response?.status === 403) {
@@ -51,18 +57,6 @@ export default function Login() {
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setResending(true);
-    try {
-      await resendVerificationEmailRequest(email);
-      setResendSent(true);
-    } catch {
-      // the resend endpoint always returns a generic success response
-    } finally {
-      setResending(false);
     }
   };
 
@@ -85,18 +79,12 @@ export default function Login() {
           {error}
           {needsVerification && (
             <div className="mt-2">
-              {resendSent ? (
-                <span className="text-foreground">Check your inbox for a new link.</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleResend}
-                  disabled={resending}
-                  className="font-medium underline hover:no-underline disabled:opacity-60"
-                >
-                  {resending ? "Sending..." : "Resend verification email"}
-                </button>
-              )}
+              <Link
+                to={`/verify-email?email=${encodeURIComponent(email)}`}
+                className="font-medium underline hover:no-underline"
+              >
+                Enter verification code
+              </Link>
             </div>
           )}
         </div>
@@ -131,14 +119,23 @@ export default function Login() {
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
             <Input
               id="password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="pl-10 h-12"
+              className="pl-10 pr-10 h-12"
               required
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              tabIndex={-1}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
         <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
@@ -152,6 +149,11 @@ export default function Login() {
           )}
         </Button>
       </form>
+
+      <GoogleLoginButton
+        onSuccess={(data) => navigate(getRedirectDestination(location, data?.user?.is_staff), { replace: true })}
+        onError={(message) => setError(message)}
+      />
     </AuthLayout>
   );
 }

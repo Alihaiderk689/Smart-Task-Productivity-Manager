@@ -15,6 +15,7 @@ class SignupViewTests(TestCase):
                 "first_name": "Test",
                 "email": "shortpass@example.com",
                 "password": "ab",
+                "password_confirm": "ab",
             },
             format="json",
         )
