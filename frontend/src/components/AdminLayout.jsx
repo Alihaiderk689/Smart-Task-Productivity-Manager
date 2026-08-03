@@ -1,9 +1,10 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Sparkles, ShieldCheck, LogOut, LayoutDashboard, ListChecks, UserCog, Bot, FlaskConical } from 'lucide-react';
+import { ShieldCheck, LogOut, LayoutDashboard, ListChecks, UserCog, Bot, FlaskConical } from 'lucide-react';
 import { base44 } from '../api/base44Client';
 import ThemeToggle from './theme-toggle';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import logo from '../assets/logo.png';
 
 // Deliberately separate from Layout.jsx -- an admin account never sees the
 // regular task/category navigation (RoleRoute keeps it off those routes
@@ -29,9 +30,7 @@ export default function AdminLayout() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
         <Link to="/admin" className="flex items-center gap-2.5 min-w-0 shrink-0">
-          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <Sparkles className="w-4 h-4 text-white" />
-          </div>
+          <img src={logo} alt="TaskFlow" className="w-9 h-9 shrink-0 object-contain" />
           <span className="font-bold text-lg text-slate-900 dark:text-slate-100 truncate">TaskFlow</span>
           <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shrink-0">
             <ShieldCheck className="w-3 h-3" /> Admin

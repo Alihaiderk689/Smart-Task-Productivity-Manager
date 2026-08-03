@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, CheckSquare, Tags, Calendar, LogOut, Menu, X, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Tags, Calendar, LogOut, Menu, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { base44 } from '../api/base44Client';
 import { statusConfig, colorBgMap, getCategoryColor } from '../lib/taskUtils';
 import ThemeToggle from './theme-toggle';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { useAuth } from '../context/AuthContext';
+import logo from '../assets/logo.png';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -63,9 +64,7 @@ export default function Layout() {
           {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-white" />
-          </div>
+          <img src={logo} alt="TaskFlow" className="w-8 h-8 object-contain" />
           <span className="font-bold text-lg bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">TaskFlow</span>
         </div>
         <ThemeToggle />
@@ -76,9 +75,7 @@ export default function Layout() {
         <div className="p-6 pb-24 h-full overflow-y-auto">
           <div className="flex items-center justify-between mb-10">
             <Link to="/" className="flex items-center gap-2.5" onClick={() => setSidebarOpen(false)}>
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <img src={logo} alt="TaskFlow" className="w-10 h-10 object-contain" />
               <span className="font-bold text-xl tracking-tight text-slate-900 dark:text-slate-100">TaskFlow</span>
             </Link>
             <ThemeToggle className="hidden lg:inline-flex" />

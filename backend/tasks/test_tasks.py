@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 from rest_framework import status
 from tasks.models import Task
 from django.utils import timezone
@@ -91,6 +92,145 @@ def test_create_task_allows_description_at_200_words(auth_client, test_user, cat
         format="json"
     )
     assert response.status_code == status.HTTP_201_CREATED
+
+@pytest.mark.django_db
+def test_create_task_rejects_gibberish_title(auth_client, test_user, category_factory):
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/",
+        _task_payload(category, title="ahfuahsfua sfhasf uhaf uahf uashf auhfauhf"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "title" in response.data
+
+@pytest.mark.django_db
+def test_create_task_rejects_gibberish_description(auth_client, test_user, category_factory):
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/",
+        _task_payload(category, description="ahfuahsfua sfhasf uhaf uahf uashf auhfauhf asufhsa fahusf"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "description" in response.data
+
+@pytest.mark.django_db
+def test_create_task_allows_realistic_title_and_description(auth_client, test_user, category_factory):
+    # Guards against the gibberish check above over-triggering on ordinary
+    # text -- proper nouns, acronyms, and brand names should never be
+    # mistaken for keyboard-mashing.
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/",
+        _task_payload(
+            category,
+            title="Submit PRD to stakeholders by Friday",
+            description="Review the Figma mockups and sync with Zainab about the Q3 roadmap.",
+        ),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+def _repeat_payload(category, **overrides):
+    start = timezone.now() + timedelta(hours=1)
+    payload = {
+        "title": "Workout",
+        "description": "Evening workout session",
+        "category": category.id,
+        "priority": "High",
+        "start_time": start.isoformat(),
+        "end_time": (start + timedelta(minutes=30)).isoformat(),
+        "repeat_days": 7,
+    }
+    payload.update(overrides)
+    return payload
+
+@pytest.mark.django_db
+def test_create_repeating_tasks_creates_one_per_day(auth_client, test_user, category_factory):
+    category = category_factory(user=test_user)
+    response = auth_client.post("/api/tasks/repeat/", _repeat_payload(category), format="json")
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(response.data["created"]) == 7
+
+    tasks = list(Task.objects.filter(user=test_user, title="Workout").order_by("start_time"))
+    assert len(tasks) == 7
+    for i, task in enumerate(tasks):
+        expected_day = (timezone.now() + timedelta(hours=1, days=i)).date()
+        assert task.start_time.date() == expected_day
+        # Same time-of-day and duration on every occurrence.
+        assert task.start_time.time() == tasks[0].start_time.time()
+        assert (task.end_time - task.start_time) == (tasks[0].end_time - tasks[0].start_time)
+        # All 7 share one series id, in order, so the frontend can group them.
+        assert task.repeat_group_id == tasks[0].repeat_group_id
+        assert task.repeat_index == i + 1
+        assert task.repeat_total == 7
+
+@pytest.mark.django_db
+def test_create_task_does_not_accept_client_supplied_repeat_group_id(auth_client, test_user, category_factory):
+    # repeat_group_id/index/total are read-only -- only create_repeating_tasks
+    # is allowed to set them, never a plain single-task create.
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/",
+        _task_payload(category, repeat_group_id="11111111-1111-1111-1111-111111111111", repeat_index=3, repeat_total=7),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    task = Task.objects.get(id=response.data["id"])
+    assert task.repeat_group_id is None
+    assert task.repeat_index is None
+    assert task.repeat_total is None
+
+@pytest.mark.django_db
+def test_create_repeating_tasks_schedules_reminders_per_occurrence(auth_client, test_user, category_factory):
+    category = category_factory(user=test_user)
+    with patch("tasks.views.NotificationService.schedule_reminders") as mock_schedule:
+        response = auth_client.post("/api/tasks/repeat/", _repeat_payload(category, repeat_days=3), format="json")
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert mock_schedule.call_count == 3
+
+@pytest.mark.parametrize("repeat_days", [1, 31, 0, -1])
+@pytest.mark.django_db
+def test_create_repeating_tasks_rejects_out_of_range_days(auth_client, test_user, category_factory, repeat_days):
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/repeat/", _repeat_payload(category, repeat_days=repeat_days), format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert Task.objects.filter(user=test_user).count() == 0
+
+@pytest.mark.django_db
+def test_create_repeating_tasks_rejects_non_integer_days(auth_client, test_user, category_factory):
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/repeat/", _repeat_payload(category, repeat_days="not-a-number"), format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+@pytest.mark.django_db
+def test_create_repeating_tasks_validates_all_before_saving_any(auth_client, test_user, category_factory):
+    # A field that's invalid on every occurrence (title is day-independent)
+    # must reject the whole batch and create nothing -- no partial run.
+    category = category_factory(user=test_user)
+    response = auth_client.post(
+        "/api/tasks/repeat/",
+        _repeat_payload(category, title="ahfuahsfua sfhasf uhaf uahf uashf auhfauhf"),
+        format="json"
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert Task.objects.filter(user=test_user).count() == 0
+
+@pytest.mark.django_db
+def test_create_repeating_tasks_requires_category(auth_client, test_user, category_factory):
+    category = category_factory(user=test_user)
+    payload = _repeat_payload(category)
+    del payload["category"]
+    response = auth_client.post("/api/tasks/repeat/", payload, format="json")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert Task.objects.filter(user=test_user).count() == 0
 
 @pytest.mark.django_db
 def test_create_task_requires_category(auth_client, test_user, category_factory):

@@ -218,7 +218,7 @@ export default function Register() {
           <FieldError message={errorFor("password_confirm")} />
         </div>
 
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading || !isValid}>
+        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

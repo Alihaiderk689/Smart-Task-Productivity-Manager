@@ -7,11 +7,13 @@ pause_task,
 resume_task,
 stop_task,
 reschedule_task,
+create_repeating_tasks,
 
 )
 
 urlpatterns = [
     path("", TaskListCreateView.as_view(), name="task-list-create"),
+    path("repeat/", create_repeating_tasks, name="task-repeat-create"),
     path("<int:pk>/", TaskDetailView.as_view(), name="task-detail"),
     path("<int:pk>/start/", start_task, name="start-task"),
     path("<int:pk>/pause/", pause_task, name="pause-task"),

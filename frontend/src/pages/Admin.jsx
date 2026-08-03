@@ -11,6 +11,7 @@ import { adminApi } from '@/services/api';
 import { statusConfig } from '@/lib/taskUtils';
 import { cn } from '@/lib/utils';
 import StatCard from '@/components/statcard';
+import CopilotQueryBox from '@/components/CopilotQueryBox';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -292,6 +293,14 @@ export default function Admin() {
           )}
         </div>
       </div>
+
+      <CopilotQueryBox
+        sessionId="admin-dashboard"
+        title="Ask the Copilot"
+        placeholder="e.g. How many tasks are overdue right now?"
+        emptyHint="Ask anything about your users or tasks -- the copilot queries the live database and answers only from what it finds there."
+        className="mb-6"
+      />
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 dark:border-slate-800">

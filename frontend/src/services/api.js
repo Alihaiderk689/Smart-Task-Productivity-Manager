@@ -242,6 +242,9 @@ export const tasksApi = {
 	create(payload) {
 		return apiClient.post("/tasks/", payload);
 	},
+	createRepeating(payload) {
+		return apiClient.post("/tasks/repeat/", payload);
+	},
 	update(taskId, payload) {
 		return apiClient.patch(`/tasks/${taskId}/`, payload);
 	},

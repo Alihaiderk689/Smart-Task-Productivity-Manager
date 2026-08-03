@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from ..llm.client import GroqClient
 from ..memory.service import MemoryService
@@ -31,7 +32,15 @@ SYSTEM_PROMPT = (
 )
 
 MAX_TOOL_ROUNDS = 4
-LLM_RETRY_ATTEMPTS = 2
+LLM_RETRY_ATTEMPTS = 3
+# Only applied to 429s (Groq rate-limit), between attempts -- a burst of chat
+# traffic (or the eval suite's ~20 back-to-back scenarios) can trip Groq's
+# per-minute limit well before the account is actually out of quota, and the
+# right response is to wait it out, not to give up on the first try. Genuine
+# outages (network down, auth failure, etc.) still fail fast with no sleep,
+# same as before -- see scenario_failure_llm_outage_chat, which relies on
+# that to stay quick.
+RATE_LIMIT_BACKOFF_SECONDS = [2, 6]
 FALLBACK_REPLY = "I gathered some information but couldn't finish reasoning about it -- try rephrasing your question."
 LLM_OUTAGE_REPLY = "I'm having trouble reaching the AI service right now -- please try again in a moment."
 
@@ -93,10 +102,18 @@ class ChatService:
             return {"success": False, "error": f"{name} failed unexpectedly: {exc}"}
 
     def _chat_with_retries(self, messages: list[dict], tools_schema: list[dict]):
+        from groq import RateLimitError
+
         last_error: Exception | None = None
         for attempt in range(1, LLM_RETRY_ATTEMPTS + 1):
             try:
                 return self.llm.chat(messages, tools=tools_schema)
+            except RateLimitError as exc:
+                last_error = exc
+                logger.warning("Groq rate-limited chat call (attempt %s/%s): %s", attempt, LLM_RETRY_ATTEMPTS, exc)
+                if attempt < LLM_RETRY_ATTEMPTS:
+                    backoff = RATE_LIMIT_BACKOFF_SECONDS[min(attempt - 1, len(RATE_LIMIT_BACKOFF_SECONDS) - 1)]
+                    time.sleep(backoff)
             except Exception as exc:
                 last_error = exc
                 logger.warning("Groq chat call failed (attempt %s/%s): %s", attempt, LLM_RETRY_ATTEMPTS, exc)

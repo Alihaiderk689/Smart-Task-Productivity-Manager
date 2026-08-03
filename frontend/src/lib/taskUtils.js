@@ -66,3 +66,38 @@ export const formatDateTime = (dateStr) => {
   return date.toLocaleDateString('en', { month: 'short', day: 'numeric' }) + ' at ' +
     date.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' });
 };
+
+// Collapses same-repeat_group_id tasks into one series entry for display
+// (see tasks/views.py::create_repeating_tasks) -- everything else stays a
+// standalone entry. A group only collapses when every one of its
+// occurrences is present in `taskList` (repeat_total tells us the expected
+// size); if a filter has narrowed a series down to a subset, showing those
+// remaining ones individually is less confusing than a partial "series".
+// Returns a list of { type: 'task', task } | { type: 'series', tasks },
+// sorted by each item's earliest start_time.
+export function groupTasksForDisplay(taskList) {
+  const byGroup = new Map();
+  const items = [];
+
+  for (const task of taskList) {
+    if (task.repeat_group_id) {
+      if (!byGroup.has(task.repeat_group_id)) byGroup.set(task.repeat_group_id, []);
+      byGroup.get(task.repeat_group_id).push(task);
+    } else {
+      items.push({ type: 'task', task, sortKey: task.start_time });
+    }
+  }
+
+  for (const groupTasks of byGroup.values()) {
+    const sorted = [...groupTasks].sort((a, b) => (a.repeat_index ?? 0) - (b.repeat_index ?? 0));
+    const expectedTotal = sorted[0]?.repeat_total ?? sorted.length;
+    if (sorted.length === expectedTotal) {
+      items.push({ type: 'series', tasks: sorted, sortKey: sorted[0].start_time });
+    } else {
+      for (const task of sorted) items.push({ type: 'task', task, sortKey: task.start_time });
+    }
+  }
+
+  items.sort((a, b) => new Date(a.sortKey) - new Date(b.sortKey));
+  return items;
+}
