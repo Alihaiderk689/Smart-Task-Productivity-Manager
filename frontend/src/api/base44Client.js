@@ -84,6 +84,9 @@ export const base44 = {
 			async create(payload) {
 				return unwrap(await tasksApi.create(payload));
 			},
+			async createRepeating(payload) {
+				return unwrap(await tasksApi.createRepeating(payload));
+			},
 			async update(taskId, payload) {
 				return unwrap(await tasksApi.update(taskId, payload));
 			},

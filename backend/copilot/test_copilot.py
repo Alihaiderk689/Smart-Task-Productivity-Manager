@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 import pytest
+from groq import RateLimitError
 from rest_framework import status
 
 from copilot.agents.action import ActionAgent
@@ -1308,6 +1310,40 @@ def test_chat_service_retries_llm_before_succeeding(test_user):
 
     assert result["reply"] == "Recovered on retry."
     assert attempts["n"] == 2
+
+
+def _fake_rate_limit_error():
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    return RateLimitError("rate limited", response=response, body=None)
+
+
+@pytest.mark.django_db
+def test_chat_service_backs_off_and_recovers_from_rate_limit(test_user):
+    # A burst of chat traffic (or the eval suite's ~20 back-to-back scenarios)
+    # can trip Groq's per-minute limit well before the daily quota is
+    # actually exhausted -- the right response is to wait it out across a
+    # couple of attempts rather than immediately degrading to the outage
+    # fallback with zero tool calls (which is indistinguishable, from the
+    # eval harness's point of view, from the safety pattern never firing).
+    attempts = {"n": 0}
+
+    def flaky_create(**kwargs):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise _fake_rate_limit_error()
+        return _fake_groq_response("Recovered after rate-limit backoff.")
+
+    fake_inner_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=flaky_create)))
+    llm = GroqClient(api_key="fake-key")
+    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client), \
+         patch("copilot.services.chat_service.time.sleep") as mock_sleep:
+        result = ChatService(llm=llm).send(user=test_user, message="hello")
+
+    assert result["reply"] == "Recovered after rate-limit backoff."
+    assert attempts["n"] == 3
+    # Backed off before both retries, not just once.
+    assert mock_sleep.call_count == 2
 
 
 @pytest.mark.django_db

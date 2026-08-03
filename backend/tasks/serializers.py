@@ -4,6 +4,9 @@ from rest_framework import serializers
 from categories.models import Category
 
 from .models import Task
+from .validators import looks_like_gibberish
+
+GIBBERISH_MESSAGE = "This doesn't look like real text -- please rewrite it in plain words."
 
 TITLE_MAX_WORDS = 20
 DESCRIPTION_MAX_WORDS = 200
@@ -50,6 +53,12 @@ class TaskSerializer(serializers.ModelSerializer):
             "reminder_version",
             "rescheduled_count",
             "last_daily_reminder_date",
+            # Only ever set internally by create_repeating_tasks (see
+            # tasks/views.py) -- never accepted as client input, on a plain
+            # create or update.
+            "repeat_group_id",
+            "repeat_index",
+            "repeat_total",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -64,12 +73,16 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Task name is required.")
         if _word_count(value) > TITLE_MAX_WORDS:
             raise serializers.ValidationError(f"Task name cannot exceed {TITLE_MAX_WORDS} words.")
+        if looks_like_gibberish(value):
+            raise serializers.ValidationError(GIBBERISH_MESSAGE)
         return value
 
     def validate_description(self, value):
         value = (value or "").strip()
         if value and _word_count(value) > DESCRIPTION_MAX_WORDS:
             raise serializers.ValidationError(f"Description cannot exceed {DESCRIPTION_MAX_WORDS} words.")
+        if value and looks_like_gibberish(value):
+            raise serializers.ValidationError(GIBBERISH_MESSAGE)
         return value
 
     def validate_start_time(self, value):

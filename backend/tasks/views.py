@@ -1,4 +1,8 @@
+import uuid
+from datetime import timedelta
+
 from rest_framework import generics
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view, permission_classes
@@ -11,6 +15,9 @@ from notifications.services import NotificationService
 
 from .models import Task
 from .serializers import TaskSerializer
+
+REPEAT_MIN_DAYS = 2
+REPEAT_MAX_DAYS = 30
 
 
 class TaskListCreateView(generics.ListCreateAPIView):
@@ -262,3 +269,78 @@ def stop_task(request, pk):
         "status": task.status,
         "completed_at": task.completed_at,
     })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_repeating_tasks(request):
+    """Creates the same task on each of N consecutive days (same time of
+    day, same duration) in a single request -- e.g. "Workout every day at
+    7pm for the next 7 days". Every occurrence is validated with the same
+    TaskSerializer rules as a normal single create (word limits, the
+    gibberish check, category ownership, ...) before any of them are
+    saved, so a bad occurrence (e.g. day 5 landing on an invalid date)
+    fails the whole batch instead of leaving a partial run behind. Each
+    saved occurrence is a completely independent Task row with its own
+    reminders, exactly as if it had been created one at a time through the
+    regular endpoint -- see TaskListCreateView.perform_create."""
+    try:
+        repeat_days = int(request.data.get("repeat_days"))
+    except (TypeError, ValueError):
+        return Response({"repeat_days": ["repeat_days must be a whole number."]}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not (REPEAT_MIN_DAYS <= repeat_days <= REPEAT_MAX_DAYS):
+        return Response(
+            {"repeat_days": [f"repeat_days must be between {REPEAT_MIN_DAYS} and {REPEAT_MAX_DAYS}."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    base_start = parse_datetime(request.data.get("start_time") or "")
+    base_end = parse_datetime(request.data.get("end_time") or "")
+    if not base_start or not base_end:
+        return Response(
+            {"error": "Invalid datetime format for start_time or end_time."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if timezone.is_naive(base_start):
+        base_start = timezone.make_aware(base_start, timezone.get_current_timezone())
+    if timezone.is_naive(base_end):
+        base_end = timezone.make_aware(base_end, timezone.get_current_timezone())
+
+    base_fields = {
+        "title": request.data.get("title"),
+        "description": request.data.get("description", ""),
+        "category": request.data.get("category"),
+        "priority": request.data.get("priority"),
+    }
+
+    occurrence_serializers = []
+    for day in range(repeat_days):
+        occurrence = {
+            **base_fields,
+            "start_time": (base_start + timedelta(days=day)).isoformat(),
+            "end_time": (base_end + timedelta(days=day)).isoformat(),
+        }
+        serializer = TaskSerializer(data=occurrence, context={"request": request})
+        if not serializer.is_valid():
+            return Response({"day": day, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        occurrence_serializers.append(serializer)
+
+    # Groups every occurrence of this batch together (see the Task model's
+    # repeat_group_id docstring) so the frontend can show them as one
+    # "N-day series" card instead of N separate ones.
+    group_id = uuid.uuid4()
+
+    created_tasks = []
+    with transaction.atomic():
+        for index, serializer in enumerate(occurrence_serializers, start=1):
+            task = serializer.save(
+                user=request.user,
+                repeat_group_id=group_id,
+                repeat_index=index,
+                repeat_total=repeat_days,
+            )
+            NotificationService.schedule_reminders(task)
+            created_tasks.append(task)
+
+    return Response({"created": TaskSerializer(created_tasks, many=True).data}, status=status.HTTP_201_CREATED)

@@ -3,8 +3,9 @@ import { base44 } from '../api/base44Client';
 import { Plus, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import TaskCard from '@/components/taskcard';
+import TaskSeriesCard from '@/components/taskseriescard';
 import TaskForm from '@/components/taskform';
-import { actionSuccessMessages } from '@/lib/taskUtils';
+import { actionSuccessMessages, groupTasksForDisplay } from '@/lib/taskUtils';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
 const PAGE_SIZE = 9;
@@ -22,6 +23,7 @@ export default function Tasks() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [deleteTask, setDeleteTask] = useState(null);
+  const [deleteSeries, setDeleteSeries] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -72,6 +74,18 @@ export default function Tasks() {
     }
   };
 
+  const handleDeleteSeries = async () => {
+    if (!deleteSeries) return;
+    try {
+      await Promise.all(deleteSeries.map(t => base44.entities.Task.delete(t.id)));
+      toast.success(`${deleteSeries.length} tasks deleted`);
+      setDeleteSeries(null);
+      loadData();
+    } catch (err) {
+      toast.error('Failed to delete the series');
+    }
+  };
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -108,8 +122,11 @@ export default function Tasks() {
   // Reset to page 1 when filters change
   useEffect(() => { setCurrentPage(1); }, [statusFilter, categoryFilter, priorityFilter, dueDateFilter, search]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // A 7-day repeat series collapses into one card here -- pagination and
+  // the page count below are both measured in cards, not underlying tasks.
+  const displayItems = useMemo(() => groupTasksForDisplay(filtered), [filtered]);
+  const totalPages = Math.ceil(displayItems.length / PAGE_SIZE);
+  const paginated = displayItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const statusTabs = ['all', 'Pending', 'In Progress', 'Paused', 'Completed', 'Stopped', 'Missed'];
 
@@ -181,9 +198,28 @@ export default function Tasks() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {paginated.map(task => (
-            <TaskCard key={task.id} task={task} category={categories.find(c => c.id === task.category)} onAction={(action) => handleAction(action, task)} onEdit={handleEdit} onDelete={setDeleteTask} />
-          ))}
+          {paginated.map(item =>
+            item.type === 'series' ? (
+              <TaskSeriesCard
+                key={item.tasks[0].repeat_group_id}
+                tasks={item.tasks}
+                category={categories.find(c => c.id === item.tasks[0].category)}
+                onAction={handleAction}
+                onEdit={handleEdit}
+                onDelete={setDeleteTask}
+                onDeleteSeries={setDeleteSeries}
+              />
+            ) : (
+              <TaskCard
+                key={item.task.id}
+                task={item.task}
+                category={categories.find(c => c.id === item.task.category)}
+                onAction={(action) => handleAction(action, item.task)}
+                onEdit={handleEdit}
+                onDelete={setDeleteTask}
+              />
+            )
+          )}
         </div>
       )}
 
@@ -215,6 +251,21 @@ export default function Tasks() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteSeries} onOpenChange={(open) => !open && setDeleteSeries(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete entire series?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. All {deleteSeries?.length} tasks in "{deleteSeries?.[0]?.title}" will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSeries} className="bg-red-600 hover:bg-red-700">Delete all</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
