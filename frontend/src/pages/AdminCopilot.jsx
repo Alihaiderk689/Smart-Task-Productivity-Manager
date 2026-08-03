@@ -1,12 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   Bot, Play, X, AlertTriangle, ListChecks, XCircle, Sparkles, Clock,
-  Check, Ban, Send, MessageSquare, Loader2,
+  Check, Ban, Loader2,
 } from 'lucide-react';
 import { copilotApi, getErrorMessage } from '@/services/api';
 import { cn } from '@/lib/utils';
 import StatCard from '@/components/statcard';
+import CopilotQueryBox from '@/components/CopilotQueryBox';
 
 const CHAT_SESSION_ID = 'default';
 
@@ -37,10 +38,6 @@ export default function AdminCopilot() {
   const [selectedRun, setSelectedRun] = useState(null);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [resolvingId, setResolvingId] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatSending, setChatSending] = useState(false);
-  const messagesEndRef = useRef(null);
 
   const loadAll = useCallback(async () => {
     const [summaryRes, agentsRes, recsRes, runsRes] = await Promise.all([
@@ -59,14 +56,6 @@ export default function AdminCopilot() {
     loadAll().finally(() => setLoading(false));
   }, [loadAll]);
 
-  useEffect(() => {
-    copilotApi.chatHistory(CHAT_SESSION_ID).then(({ data }) => setMessages(data)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   const handleResolveRecommendation = async (rec, action) => {
     setResolvingId(rec.id);
     try {
@@ -82,28 +71,6 @@ export default function AdminCopilot() {
       toast.error(getErrorMessage(err, 'Failed to update recommendation'));
     } finally {
       setResolvingId(null);
-    }
-  };
-
-  const handleSendChat = async (e) => {
-    e.preventDefault();
-    const text = chatInput.trim();
-    if (!text || chatSending) return;
-
-    setMessages((prev) => [...prev, { id: `local-${Date.now()}`, role: 'admin', content: text }]);
-    setChatInput('');
-    setChatSending(true);
-    try {
-      const { data } = await copilotApi.chatSend(text, CHAT_SESSION_ID);
-      setMessages((prev) => [...prev, { id: `local-reply-${Date.now()}`, role: 'agent', content: data.reply }]);
-      if (data.proposed_recommendation) {
-        toast.success(`Proposed: ${data.proposed_recommendation.title} -- awaiting your approval below.`);
-        await loadAll();
-      }
-    } catch (err) {
-      setMessages((prev) => [...prev, { id: `local-error-${Date.now()}`, role: 'agent', content: getErrorMessage(err, 'Something went wrong.') }]);
-    } finally {
-      setChatSending(false);
     }
   };
 
@@ -282,66 +249,7 @@ export default function AdminCopilot() {
       </div>
 
       {/* Chat */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-5 mt-6">
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
-          <MessageSquare className="w-4 h-4" /> Ask the Copilot
-        </h2>
-
-        <div className="h-72 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800 p-3 mb-3 space-y-2 bg-slate-50/50 dark:bg-slate-950/40">
-          {messages.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-8">
-              Ask about task stats, inactive users, overdue tasks, or ask it to propose an action for your approval.
-            </p>
-          ) : (
-            messages.map((m) => (
-              <div key={m.id} className={cn('flex', m.role === 'admin' ? 'justify-end' : 'justify-start')}>
-                <div
-                  className={cn(
-                    'max-w-[80%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap',
-                    m.role === 'admin'
-                      ? 'bg-indigo-600 text-white rounded-br-sm'
-                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-bl-sm'
-                  )}
-                >
-                  {m.content}
-                </div>
-              </div>
-            ))
-          )}
-          {chatSending && (
-            <div className="flex justify-start">
-              <div className="px-3 py-2 rounded-2xl rounded-bl-sm bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
-                <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {summary.llm_configured ? (
-          <form onSubmit={handleSendChat} className="flex items-center gap-2">
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              placeholder="e.g. Which users have been inactive for 90+ days?"
-              disabled={chatSending}
-              className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={chatSending || !chatInput.trim()}
-              className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
-        ) : (
-          <p className="text-sm text-slate-400 text-center py-2">
-            Chat requires <code className="font-mono">GROQ_API_KEY</code> to be configured.
-          </p>
-        )}
-      </div>
+      <CopilotQueryBox sessionId={CHAT_SESSION_ID} onProposed={loadAll} className="mt-6" />
 
       {/* Run detail modal */}
       {(selectedRun || runDetailLoading) && (

@@ -74,6 +74,16 @@ class Task(models.Model):
     # last calendar day it was sent so the sweep doesn't double-send.
     last_daily_reminder_date = models.DateField(null=True, blank=True)
 
+    # Repeat series (see tasks/views.py::create_repeating_tasks) -- each day
+    # of a repeated task ("Workout, daily for 7 days") is still its own real
+    # Task row with its own status/reminders (a single row can't be "done
+    # Monday, still pending Tuesday"), but these three fields let the
+    # frontend group same-series rows back into one card instead of N.
+    # Null for every task created the normal, non-repeating way.
+    repeat_group_id = models.UUIDField(null=True, blank=True, db_index=True)
+    repeat_index = models.PositiveIntegerField(null=True, blank=True)
+    repeat_total = models.PositiveIntegerField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
