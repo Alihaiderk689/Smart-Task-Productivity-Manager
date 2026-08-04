@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "notifications",    #responsible for notifications.
     "adminpanel",       #staff-only oversight dashboard (users, tasks, stats).
     "copilot",          #AI admin copilot: agents, tools, and their execution logs.
+    "usercopilot",      #AI copilot for the currently authenticated user's own tasks/categories only.
     "evaluation",       #automated evaluation harness that measures the copilot's own behavior.
 ]
 
@@ -296,6 +297,19 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 # see GroqClient.is_configured.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
+
+# Google's Gemini API -- automatic fallback when Groq's calls are exhausted
+# (daily quota, outage, etc.), see copilot/llm/fallback_client.py::LLMClient.
+# Left blank, the copilot behaves exactly as before (Groq only, degrading
+# to the outage-fallback reply if Groq is unavailable).
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
+
+# OpenRouter -- third fallback, tried after both Groq and Gemini are
+# exhausted/unconfigured, see copilot/llm/fallback_client.py::LLMClient.
+# Left blank, the fallback chain simply stops at Gemini as before.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL") or "openai/gpt-4o-mini"
 
 # Password reset links expire this many seconds after being sent (used by
 # django.contrib.auth.tokens.default_token_generator, which our custom

@@ -43,6 +43,14 @@ class RecommendationSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "description", "reasoning", "impact", "estimated_benefit",
             "risk", "category", "confidence", "status", "requires_approval",
+            # Exposed so the approval UI can show the admin exactly what will
+            # execute (tool name + arguments) alongside the LLM-authored
+            # title/description -- those are free text and can be wrong or
+            # even mismatched from what action_payload actually does (e.g. a
+            # hallucinated proposal titled "rename user" whose payload is
+            # really deactivate_user); the admin should never have to trust
+            # the narrative alone.
+            "action_payload",
             "related_agent_run", "created_at", "resolved_at",
         ]
         read_only_fields = fields

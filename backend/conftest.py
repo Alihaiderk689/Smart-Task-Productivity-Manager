@@ -23,12 +23,17 @@ def _use_local_file_storage(settings):
 
 @pytest.fixture(autouse=True)
 def _no_real_llm_key(settings):
-    # backend/.env carries a real GROQ_API_KEY for the running app, but
-    # tests must stay hermetic -- otherwise any copilot test that forgets
-    # to mock the LLM silently makes a real network call to Groq. Force it
-    # unset by default; tests that specifically exercise the "configured"
-    # path set settings.GROQ_API_KEY back explicitly within the test.
+    # backend/.env carries real GROQ_API_KEY / GEMINI_API_KEY /
+    # OPENROUTER_API_KEY values for the running app, but tests must stay
+    # hermetic -- otherwise any copilot test that forgets to mock the LLM
+    # silently makes a real network call to Groq, Gemini, or OpenRouter
+    # (the fallback chain, see copilot/llm/fallback_client.py). Force all
+    # three unset by default; tests that specifically exercise a
+    # "configured" path set the relevant settings.* back explicitly within
+    # the test.
     settings.GROQ_API_KEY = ""
+    settings.GEMINI_API_KEY = ""
+    settings.OPENROUTER_API_KEY = ""
 
 @pytest.fixture
 def api_client():

@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 
-from ..llm.client import GroqClient
+from ..llm.fallback_client import LLMClient
 from ..memory.service import MemoryService
 from ..tools.registry import ToolRegistry
 from ..tools.registry import tool_registry as default_tool_registry
@@ -28,37 +27,39 @@ SYSTEM_PROMPT = (
     "propose_action tool instead of doing it yourself -- this creates a pending recommendation "
     "that a human admin must separately review and approve. Be concise and factual; base answers "
     "only on tool results, not guesses. If a tool call fails, say so plainly rather than making "
-    "up an answer."
+    "up an answer.\n\n"
+    "propose_action's 'tool' argument must be the EXACT name of one of the actions listed below "
+    "-- never invent a plausible-sounding tool name, and never substitute a different action "
+    "just because nothing listed matches. If the admin asks for something none of these actions "
+    "can do (e.g. renaming a user, editing a task's title), say plainly that this isn't something "
+    "you're able to do yet -- do not propose a different, unrelated action instead, even a "
+    "seemingly related or lower-risk one."
 )
 
 MAX_TOOL_ROUNDS = 4
-LLM_RETRY_ATTEMPTS = 3
-# Only applied to 429s (Groq rate-limit), between attempts -- a burst of chat
-# traffic (or the eval suite's ~20 back-to-back scenarios) can trip Groq's
-# per-minute limit well before the account is actually out of quota, and the
-# right response is to wait it out, not to give up on the first try. Genuine
-# outages (network down, auth failure, etc.) still fail fast with no sleep,
-# same as before -- see scenario_failure_llm_outage_chat, which relies on
-# that to stay quick.
-RATE_LIMIT_BACKOFF_SECONDS = [2, 6]
 FALLBACK_REPLY = "I gathered some information but couldn't finish reasoning about it -- try rephrasing your question."
 LLM_OUTAGE_REPLY = "I'm having trouble reaching the AI service right now -- please try again in a moment."
 
 
 class ChatNotConfiguredError(RuntimeError):
     """Raised only if calling code skips the `is_configured` check on the
-    underlying GroqClient -- mirrors llm.client.LLMNotConfiguredError."""
+    underlying LLMClient -- mirrors llm.client.LLMNotConfiguredError."""
 
 
 class ChatService:
     def __init__(
         self,
         *,
-        llm: GroqClient | None = None,
+        llm: LLMClient | None = None,
         memory: MemoryService | None = None,
         tools: ToolRegistry | None = None,
     ):
-        self.llm = llm or GroqClient()
+        # LLMClient tries Groq first, retrying through its own per-minute
+        # rate limit, then falls back to Google's Gemini, then OpenRouter,
+        # if the earlier providers are exhausted or unconfigured -- see
+        # llm/fallback_client.py. Retry/backoff no longer lives here; this
+        # just calls .chat() and reacts to whether it succeeded.
+        self.llm = llm or LLMClient()
         self.memory = memory or MemoryService()
         self.tools = tools or default_tool_registry
 
@@ -101,27 +102,9 @@ class ChatService:
             logger.exception("Tool %r raised during chat instead of returning a failed ToolResult", name)
             return {"success": False, "error": f"{name} failed unexpectedly: {exc}"}
 
-    def _chat_with_retries(self, messages: list[dict], tools_schema: list[dict]):
-        from groq import RateLimitError
-
-        last_error: Exception | None = None
-        for attempt in range(1, LLM_RETRY_ATTEMPTS + 1):
-            try:
-                return self.llm.chat(messages, tools=tools_schema)
-            except RateLimitError as exc:
-                last_error = exc
-                logger.warning("Groq rate-limited chat call (attempt %s/%s): %s", attempt, LLM_RETRY_ATTEMPTS, exc)
-                if attempt < LLM_RETRY_ATTEMPTS:
-                    backoff = RATE_LIMIT_BACKOFF_SECONDS[min(attempt - 1, len(RATE_LIMIT_BACKOFF_SECONDS) - 1)]
-                    time.sleep(backoff)
-            except Exception as exc:
-                last_error = exc
-                logger.warning("Groq chat call failed (attempt %s/%s): %s", attempt, LLM_RETRY_ATTEMPTS, exc)
-        raise last_error
-
     def send(self, *, user, message: str, session_id: str = "default") -> dict:
         if not self.is_configured:
-            raise ChatNotConfiguredError("GROQ_API_KEY is not configured.")
+            raise ChatNotConfiguredError("Neither GROQ_API_KEY nor GEMINI_API_KEY is configured.")
 
         self.memory.add_message(user=user, content=message, role="admin", session_id=session_id)
 
@@ -136,12 +119,13 @@ class ChatService:
 
         for _ in range(MAX_TOOL_ROUNDS):
             try:
-                result = self._chat_with_retries(messages, tools_schema)
+                result = self.llm.chat(messages, tools=tools_schema)
             except Exception:
-                # The LLM itself is unreachable (outage, network, rate limit
-                # exhausted past our retry) -- fail the turn gracefully
-                # rather than a 500, same principle as every agent's LLM
-                # fallback (see agents/system_health.py).
+                # No provider in the chain could serve this (Groq
+                # exhausted/down, and Gemini/OpenRouter either also failed
+                # or aren't configured) -- fail the turn gracefully rather
+                # than a 500, same principle as every agent's LLM fallback
+                # (see agents/system_health.py).
                 reply = LLM_OUTAGE_REPLY
                 break
 
