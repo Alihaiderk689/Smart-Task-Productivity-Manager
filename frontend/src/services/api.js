@@ -390,6 +390,20 @@ export const copilotApi = {
 	},
 };
 
+// Separate from copilotApi (which is admin-only end to end) -- this is the
+// per-user AI Copilot: any authenticated user can call it, and it only
+// ever sees/acts on that one user's own tasks/categories. Fully stateless
+// on the backend -- `history` is held client-side and resent every call,
+// never persisted server-side (see usercopilot/services/chat_service.py).
+export const userCopilotApi = {
+	status() {
+		return apiClient.get("/usercopilot/status/");
+	},
+	chatSend(message, history) {
+		return apiClient.post("/usercopilot/chat/send/", { message, history });
+	},
+};
+
 export const evaluationApi = {
 	// Runs the full ~20-scenario suite synchronously (real Groq calls) --
 	// can take tens of seconds, callers should show a running state.

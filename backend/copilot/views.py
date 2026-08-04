@@ -6,7 +6,7 @@ from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.response import Response
 
 from .agents.registry import AGENT_REGISTRY, get_agent_class
-from .llm.client import GroqClient
+from .llm.fallback_client import LLMClient
 from .memory.service import MemoryService
 from .models import AgentRun, Recommendation
 from .permissions import IsAdminUser
@@ -105,7 +105,7 @@ def dashboard_summary(request):
         "runs_failed_today": runs_today.filter(status="failed").count(),
         "pending_recommendations": Recommendation.objects.filter(status="pending").count(),
         "agents_registered": list(AGENT_REGISTRY.keys()),
-        "llm_configured": GroqClient().is_configured,
+        "llm_configured": LLMClient().is_configured,
     })
 
 

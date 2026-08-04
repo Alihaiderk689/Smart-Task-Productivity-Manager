@@ -12,7 +12,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 
-from ..llm.client import GroqClient
+from ..llm.fallback_client import LLMClient
 from ..models import AgentRun
 from ..repositories import AgentRunRepository
 from ..tools.base import PlannedStep, ToolResult
@@ -30,11 +30,14 @@ class BaseAgent(ABC):
         self,
         *,
         tools: ToolRegistry | None = None,
-        llm: GroqClient | None = None,
+        llm: LLMClient | None = None,
         run_repository: AgentRunRepository | None = None,
     ):
         self.tools = tools or default_tool_registry
-        self.llm = llm or GroqClient()
+        # Tries Groq first, then falls back to Google's Gemini, then
+        # OpenRouter, if the earlier providers are exhausted or
+        # unconfigured -- see llm/fallback_client.py.
+        self.llm = llm or LLMClient()
         self.runs = run_repository or AgentRunRepository()
 
     # --- Subclasses implement these ------------------------------------

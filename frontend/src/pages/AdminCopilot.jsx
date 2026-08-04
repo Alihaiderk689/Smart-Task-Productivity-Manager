@@ -188,6 +188,11 @@ export default function AdminCopilot() {
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">{rec.description}</p>
                   {rec.impact && <p className="text-xs text-slate-400 mt-1"><span className="font-medium">Impact:</span> {rec.impact}</p>}
+                  {rec.action_payload?.tool && (
+                    <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 rounded-lg px-2 py-1 mt-2 break-all">
+                      Will run: {rec.action_payload.tool}({JSON.stringify(rec.action_payload.input || {})})
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-3">
                     {rec.requires_approval ? (
                       <>

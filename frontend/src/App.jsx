@@ -15,6 +15,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/Resetpassword';
 import VerifyEmail from './pages/VerifyEmail';
 import ProtectedRoute from './components/Protectedroute';
+import PublicOnlyRoute from './components/PublicOnlyRoute';
 import RoleRoute from './components/RoleRoute';
 import Layout from './components/layout';
 import AdminLayout from './components/AdminLayout';
@@ -56,8 +57,10 @@ const AuthenticatedApp = () => {
   // Render the main app
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route element={<PublicOnlyRoute />}>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+      </Route>
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
