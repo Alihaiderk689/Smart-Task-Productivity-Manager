@@ -8,28 +8,7 @@ import AuthLayout from "@/components/authlayout";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/services/api";
-
-// Only allow redirecting back to a same-app path, never to an external URL.
-// Staff accounts always land on /admin -- RoleRoute would bounce them there
-// anyway if "from" pointed at a regular page, so decide it up front instead
-// of letting them flash the wrong page first.
-function getRedirectDestination(location, isStaff) {
-  if (isStaff) {
-    return "/admin";
-  }
-
-  const stateFrom = location.state?.from;
-  if (typeof stateFrom === "string" && stateFrom.startsWith("/")) {
-    return stateFrom;
-  }
-
-  const queryFrom = new URLSearchParams(location.search).get("from");
-  if (queryFrom && queryFrom.startsWith("/")) {
-    return queryFrom;
-  }
-
-  return "/";
-}
+import { getAuthedRedirectDestination } from "@/lib/authRedirect";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -49,7 +28,7 @@ export default function Login() {
     setLoading(true);
     try {
       const data = await signIn({ email: email.trim().toLowerCase(), password });
-      navigate(getRedirectDestination(location, data.user?.is_staff), { replace: true });
+      navigate(getAuthedRedirectDestination(location, data.user?.is_staff), { replace: true });
     } catch (err) {
       setError(getErrorMessage(err, "Invalid email or password"));
       if (err.response?.status === 403) {
@@ -151,7 +130,7 @@ export default function Login() {
       </form>
 
       <GoogleLoginButton
-        onSuccess={(data) => navigate(getRedirectDestination(location, data?.user?.is_staff), { replace: true })}
+        onSuccess={(data) => navigate(getAuthedRedirectDestination(location, data?.user?.is_staff), { replace: true })}
         onError={(message) => setError(message)}
       />
     </AuthLayout>

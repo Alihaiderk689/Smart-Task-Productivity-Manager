@@ -15,6 +15,9 @@ from copilot.agents.system_health import SystemHealthAgent
 from copilot.agents.task_intelligence import TaskIntelligenceAgent
 from copilot.agents.user_monitoring import UserMonitoringAgent
 from copilot.llm.client import ChatResult, GroqClient, LLMNotConfiguredError
+from copilot.llm.fallback_client import LLMClient
+from copilot.llm.gemini_client import GeminiClient, GeminiNotConfiguredError
+from copilot.llm.openrouter_client import OpenRouterClient, OpenRouterNotConfiguredError
 from copilot.memory.service import MemoryService
 from copilot.models import AgentRun, ConversationMessage, Recommendation, ToolCallLog
 from copilot.repositories import AgentRunRepository, RecommendationRepository
@@ -142,6 +145,12 @@ def _fake_groq_response(content="Hello!", tool_calls=None, finish_reason="stop")
     return SimpleNamespace(choices=[choice])
 
 
+def _fake_rate_limit_error():
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    return RateLimitError("rate limited", response=response, body=None)
+
+
 def test_groq_client_chat_parses_plain_text_response():
     client = GroqClient(api_key="fake-key")
     fake_inner_client = SimpleNamespace(
@@ -195,6 +204,336 @@ def test_groq_client_summarize_returns_content():
     )
     with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
         text = client.summarize("Summarize this")
+
+    assert text == "A summary."
+
+
+# ---------------------------------------------------------------------------
+# GeminiClient -- Gemini fallback, same OpenAI-compatible response shape as Groq
+# ---------------------------------------------------------------------------
+
+def test_gemini_client_not_configured_without_key():
+    client = GeminiClient(api_key="")
+    assert client.is_configured is False
+
+
+def test_gemini_client_configured_with_key():
+    client = GeminiClient(api_key="fake-key")
+    assert client.is_configured is True
+
+
+def test_gemini_client_chat_raises_when_not_configured():
+    client = GeminiClient(api_key="")
+    with pytest.raises(GeminiNotConfiguredError):
+        client.chat([{"role": "user", "content": "hi"}])
+
+
+def test_gemini_client_chat_parses_plain_text_response():
+    client = GeminiClient(api_key="fake-key")
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("Hi from Gemini")))
+    )
+    with patch.object(GeminiClient, "_get_client", return_value=fake_inner_client):
+        result = client.chat([{"role": "user", "content": "hi"}])
+
+    assert isinstance(result, ChatResult)
+    assert result.content == "Hi from Gemini"
+    assert result.wants_tool_call is False
+
+
+def test_gemini_client_chat_parses_tool_calls():
+    client = GeminiClient(api_key="fake-key")
+    fake_call = SimpleNamespace(id="call_1", function=SimpleNamespace(name="check_database", arguments="{}"))
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: _fake_groq_response(content="", tool_calls=[fake_call])
+        ))
+    )
+    with patch.object(GeminiClient, "_get_client", return_value=fake_inner_client):
+        result = client.chat([{"role": "user", "content": "check the db"}], tools=[CheckDatabaseTool().to_llm_schema()])
+
+    assert result.wants_tool_call is True
+    assert result.tool_calls[0].name == "check_database"
+    assert result.tool_calls[0].arguments == {}
+
+
+def test_gemini_client_chat_normalizes_null_arguments_to_empty_dict():
+    client = GeminiClient(api_key="fake-key")
+    fake_call = SimpleNamespace(id="call_1", function=SimpleNamespace(name="check_database", arguments="null"))
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: _fake_groq_response(content="", tool_calls=[fake_call])
+        ))
+    )
+    with patch.object(GeminiClient, "_get_client", return_value=fake_inner_client):
+        result = client.chat([{"role": "user", "content": "check the db"}], tools=[CheckDatabaseTool().to_llm_schema()])
+
+    assert result.tool_calls[0].arguments == {}
+
+
+# ---------------------------------------------------------------------------
+# OpenRouterClient -- third fallback, same OpenAI-compatible response shape
+# as Groq/Gemini
+# ---------------------------------------------------------------------------
+
+def test_openrouter_client_not_configured_without_key():
+    client = OpenRouterClient(api_key="")
+    assert client.is_configured is False
+
+
+def test_openrouter_client_configured_with_key():
+    client = OpenRouterClient(api_key="fake-key")
+    assert client.is_configured is True
+
+
+def test_openrouter_client_chat_raises_when_not_configured():
+    client = OpenRouterClient(api_key="")
+    with pytest.raises(OpenRouterNotConfiguredError):
+        client.chat([{"role": "user", "content": "hi"}])
+
+
+def test_openrouter_client_chat_parses_plain_text_response():
+    client = OpenRouterClient(api_key="fake-key")
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("Hi from OpenRouter")))
+    )
+    with patch.object(OpenRouterClient, "_get_client", return_value=fake_inner_client):
+        result = client.chat([{"role": "user", "content": "hi"}])
+
+    assert isinstance(result, ChatResult)
+    assert result.content == "Hi from OpenRouter"
+    assert result.wants_tool_call is False
+
+
+def test_openrouter_client_chat_parses_tool_calls():
+    client = OpenRouterClient(api_key="fake-key")
+    fake_call = SimpleNamespace(id="call_1", function=SimpleNamespace(name="check_database", arguments="{}"))
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: _fake_groq_response(content="", tool_calls=[fake_call])
+        ))
+    )
+    with patch.object(OpenRouterClient, "_get_client", return_value=fake_inner_client):
+        result = client.chat([{"role": "user", "content": "check the db"}], tools=[CheckDatabaseTool().to_llm_schema()])
+
+    assert result.wants_tool_call is True
+    assert result.tool_calls[0].name == "check_database"
+    assert result.tool_calls[0].arguments == {}
+
+
+def test_openrouter_client_chat_normalizes_null_arguments_to_empty_dict():
+    client = OpenRouterClient(api_key="fake-key")
+    fake_call = SimpleNamespace(id="call_1", function=SimpleNamespace(name="check_database", arguments="null"))
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: _fake_groq_response(content="", tool_calls=[fake_call])
+        ))
+    )
+    with patch.object(OpenRouterClient, "_get_client", return_value=fake_inner_client):
+        result = client.chat([{"role": "user", "content": "check the db"}], tools=[CheckDatabaseTool().to_llm_schema()])
+
+    assert result.tool_calls[0].arguments == {}
+
+
+# ---------------------------------------------------------------------------
+# LLMClient -- Groq -> Gemini -> OpenRouter fallback orchestration
+# (fallback_client.py). Retry/backoff/fallback policy all lives here now,
+# not in either ChatService -- see
+# test_chat_service_llm_outage_returns_graceful_reply_not_exception below
+# for how a chat service reacts once LLMClient gives up entirely.
+# ---------------------------------------------------------------------------
+
+def test_llm_client_is_configured_true_if_only_groq_configured():
+    llm = LLMClient(groq=GroqClient(api_key="fake-key"), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    assert llm.is_configured is True
+
+
+def test_llm_client_is_configured_true_if_only_gemini_configured():
+    llm = LLMClient(groq=GroqClient(api_key=""), gemini=GeminiClient(api_key="fake-key"), openrouter=OpenRouterClient(api_key=""))
+    assert llm.is_configured is True
+
+
+def test_llm_client_is_configured_true_if_only_openrouter_configured():
+    llm = LLMClient(groq=GroqClient(api_key=""), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key="fake-key"))
+    assert llm.is_configured is True
+
+
+def test_llm_client_is_configured_false_if_none_configured():
+    llm = LLMClient(groq=GroqClient(api_key=""), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    assert llm.is_configured is False
+
+
+def test_llm_client_chat_raises_when_no_provider_configured():
+    llm = LLMClient(groq=GroqClient(api_key=""), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    with pytest.raises(LLMNotConfiguredError):
+        llm.chat([{"role": "user", "content": "hi"}])
+
+
+def test_llm_client_chat_retries_transient_error_before_succeeding():
+    attempts = {"n": 0}
+
+    def flaky_create(**kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise ConnectionError("transient network error")
+        return _fake_groq_response("Recovered on retry.")
+
+    fake_inner_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=flaky_create)))
+    llm = LLMClient(groq=GroqClient(api_key="fake-key"), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
+        result = llm.chat([{"role": "user", "content": "hello"}])
+
+    assert result.content == "Recovered on retry."
+    assert attempts["n"] == 2
+
+
+def test_llm_client_chat_backs_off_and_recovers_from_rate_limit():
+    # A burst of chat traffic (or the eval suite's ~20 back-to-back scenarios)
+    # can trip Groq's per-minute limit well before the daily quota is
+    # actually exhausted -- the right response is to wait it out across a
+    # couple of attempts rather than immediately degrading to the outage
+    # fallback with zero tool calls.
+    attempts = {"n": 0}
+
+    def flaky_create(**kwargs):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise _fake_rate_limit_error()
+        return _fake_groq_response("Recovered after rate-limit backoff.")
+
+    fake_inner_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=flaky_create)))
+    llm = LLMClient(groq=GroqClient(api_key="fake-key"), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client), \
+         patch("copilot.llm.fallback_client.time.sleep") as mock_sleep:
+        result = llm.chat([{"role": "user", "content": "hello"}])
+
+    assert result.content == "Recovered after rate-limit backoff."
+    assert attempts["n"] == 3
+    # Backed off before both retries, not just once.
+    assert mock_sleep.call_count == 2
+
+
+def test_llm_client_chat_falls_back_to_gemini_when_groq_exhausted():
+    fake_groq_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(ConnectionError("groq is unreachable"))
+        ))
+    )
+    fake_gemini_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("Handled by Gemini.")))
+    )
+    llm = LLMClient(groq=GroqClient(api_key="fake-key"), gemini=GeminiClient(api_key="fake-gemini-key"), openrouter=OpenRouterClient(api_key=""))
+    with patch.object(GroqClient, "_get_client", return_value=fake_groq_inner), \
+         patch.object(GeminiClient, "_get_client", return_value=fake_gemini_inner):
+        result = llm.chat([{"role": "user", "content": "hello"}])
+
+    assert result.content == "Handled by Gemini."
+
+
+def test_llm_client_chat_goes_straight_to_gemini_when_groq_unconfigured():
+    fake_gemini_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("Handled by Gemini.")))
+    )
+    llm = LLMClient(groq=GroqClient(api_key=""), gemini=GeminiClient(api_key="fake-gemini-key"), openrouter=OpenRouterClient(api_key=""))
+    with patch.object(GeminiClient, "_get_client", return_value=fake_gemini_inner):
+        result = llm.chat([{"role": "user", "content": "hello"}])
+
+    assert result.content == "Handled by Gemini."
+
+
+def test_llm_client_chat_falls_back_to_openrouter_when_groq_and_gemini_exhausted():
+    fake_groq_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(ConnectionError("groq is unreachable"))
+        ))
+    )
+    fake_gemini_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(ConnectionError("gemini is unreachable"))
+        ))
+    )
+    fake_openrouter_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("Handled by OpenRouter.")))
+    )
+    llm = LLMClient(
+        groq=GroqClient(api_key="fake-key"),
+        gemini=GeminiClient(api_key="fake-gemini-key"),
+        openrouter=OpenRouterClient(api_key="fake-openrouter-key"),
+    )
+    with patch.object(GroqClient, "_get_client", return_value=fake_groq_inner), \
+         patch.object(GeminiClient, "_get_client", return_value=fake_gemini_inner), \
+         patch.object(OpenRouterClient, "_get_client", return_value=fake_openrouter_inner):
+        result = llm.chat([{"role": "user", "content": "hello"}])
+
+    assert result.content == "Handled by OpenRouter."
+
+
+def test_llm_client_chat_goes_straight_to_openrouter_when_groq_and_gemini_unconfigured():
+    fake_openrouter_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("Handled by OpenRouter.")))
+    )
+    llm = LLMClient(
+        groq=GroqClient(api_key=""),
+        gemini=GeminiClient(api_key=""),
+        openrouter=OpenRouterClient(api_key="fake-openrouter-key"),
+    )
+    with patch.object(OpenRouterClient, "_get_client", return_value=fake_openrouter_inner):
+        result = llm.chat([{"role": "user", "content": "hello"}])
+
+    assert result.content == "Handled by OpenRouter."
+
+
+def test_llm_client_chat_reraises_original_groq_error_when_gemini_not_configured():
+    fake_groq_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(ConnectionError("groq is unreachable"))
+        ))
+    )
+    llm = LLMClient(groq=GroqClient(api_key="fake-key"), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    with patch.object(GroqClient, "_get_client", return_value=fake_groq_inner):
+        with pytest.raises(ConnectionError):
+            llm.chat([{"role": "user", "content": "hello"}])
+
+
+def test_llm_client_chat_reraises_last_providers_error_when_all_three_fail():
+    fake_groq_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(ConnectionError("groq is unreachable"))
+        ))
+    )
+    fake_gemini_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(ConnectionError("gemini is unreachable"))
+        ))
+    )
+    fake_openrouter_inner = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (_ for _ in ()).throw(TimeoutError("openrouter is unreachable"))
+        ))
+    )
+    llm = LLMClient(
+        groq=GroqClient(api_key="fake-key"),
+        gemini=GeminiClient(api_key="fake-gemini-key"),
+        openrouter=OpenRouterClient(api_key="fake-openrouter-key"),
+    )
+    with patch.object(GroqClient, "_get_client", return_value=fake_groq_inner), \
+         patch.object(GeminiClient, "_get_client", return_value=fake_gemini_inner), \
+         patch.object(OpenRouterClient, "_get_client", return_value=fake_openrouter_inner):
+        # The chain exhausts every configured provider -- the error the
+        # caller sees is whichever one failed last (OpenRouter here), not
+        # Groq's original error, since ChatService/UserChatService only
+        # care that nothing could serve the request at all.
+        with pytest.raises(TimeoutError):
+            llm.chat([{"role": "user", "content": "hello"}])
+
+
+def test_llm_client_summarize_returns_content():
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _fake_groq_response("A summary.")))
+    )
+    llm = LLMClient(groq=GroqClient(api_key="fake-key"), gemini=GeminiClient(api_key=""), openrouter=OpenRouterClient(api_key=""))
+    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
+        text = llm.summarize("Summarize this")
 
     assert text == "A summary."
 
@@ -459,6 +798,26 @@ def test_recommendation_list_endpoint_filters_by_status(staff_client):
 
     assert response.status_code == status.HTTP_200_OK
     assert [r["title"] for r in response.data] == ["A"]
+
+@pytest.mark.django_db
+def test_recommendation_list_exposes_the_real_action_payload(staff_client, test_user):
+    # The approval UI must be able to show the admin what will *actually*
+    # execute (tool + arguments), not just the LLM-authored title/description
+    # -- those are free text and can be wrong or even mismatched from the
+    # real action_payload (e.g. a hallucinated proposal titled "rename user"
+    # whose payload is really deactivate_user).
+    Recommendation.objects.create(
+        title="Rename user test@example.com to test3",
+        description="",
+        category="users",
+        status="pending",
+        action_payload={"tool": "deactivate_user", "input": {"user_id": test_user.id}},
+    )
+
+    response = staff_client.get("/api/copilot/recommendations/?status=pending")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data[0]["action_payload"] == {"tool": "deactivate_user", "input": {"user_id": test_user.id}}
 
 
 @pytest.mark.django_db
@@ -1291,59 +1650,6 @@ def test_chat_service_run_tool_catches_tool_exception(test_user):
 
     assert output["success"] is False
     assert "db is down" in output["error"]
-
-
-@pytest.mark.django_db
-def test_chat_service_retries_llm_before_succeeding(test_user):
-    attempts = {"n": 0}
-
-    def flaky_create(**kwargs):
-        attempts["n"] += 1
-        if attempts["n"] == 1:
-            raise ConnectionError("transient network error")
-        return _fake_groq_response("Recovered on retry.")
-
-    fake_inner_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=flaky_create)))
-    llm = GroqClient(api_key="fake-key")
-    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
-        result = ChatService(llm=llm).send(user=test_user, message="hello")
-
-    assert result["reply"] == "Recovered on retry."
-    assert attempts["n"] == 2
-
-
-def _fake_rate_limit_error():
-    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
-    response = httpx.Response(429, request=request)
-    return RateLimitError("rate limited", response=response, body=None)
-
-
-@pytest.mark.django_db
-def test_chat_service_backs_off_and_recovers_from_rate_limit(test_user):
-    # A burst of chat traffic (or the eval suite's ~20 back-to-back scenarios)
-    # can trip Groq's per-minute limit well before the daily quota is
-    # actually exhausted -- the right response is to wait it out across a
-    # couple of attempts rather than immediately degrading to the outage
-    # fallback with zero tool calls (which is indistinguishable, from the
-    # eval harness's point of view, from the safety pattern never firing).
-    attempts = {"n": 0}
-
-    def flaky_create(**kwargs):
-        attempts["n"] += 1
-        if attempts["n"] < 3:
-            raise _fake_rate_limit_error()
-        return _fake_groq_response("Recovered after rate-limit backoff.")
-
-    fake_inner_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=flaky_create)))
-    llm = GroqClient(api_key="fake-key")
-    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client), \
-         patch("copilot.services.chat_service.time.sleep") as mock_sleep:
-        result = ChatService(llm=llm).send(user=test_user, message="hello")
-
-    assert result["reply"] == "Recovered after rate-limit backoff."
-    assert attempts["n"] == 3
-    # Backed off before both retries, not just once.
-    assert mock_sleep.call_count == 2
 
 
 @pytest.mark.django_db

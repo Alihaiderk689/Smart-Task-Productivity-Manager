@@ -5,6 +5,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import { CheckCircle2, Clock, PlayCircle, ListTodo, Plus, ArrowRight, AlertTriangle, CalendarClock, Bell } from 'lucide-react';
 import StatCard from '@/components/statcard';
 import TaskForm from '@/components/taskform';
+import CopilotButton from '@/components/CopilotButton';
+import CopilotChat from '@/components/CopilotChat';
 import { statusConfig, colorMap, priorityConfig, getCategoryColor } from '../lib/taskUtils';
 import { useTheme } from '@/context/ThemeContext';
 
@@ -24,6 +26,7 @@ export default function Home() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -128,9 +131,12 @@ export default function Home() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">{new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
-        <button onClick={() => setFormOpen(true)} className="hidden sm:flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
-          <Plus className="w-4 h-4" /> New Task
-        </button>
+        <div className="flex items-center gap-2">
+          <CopilotButton onClick={() => setCopilotOpen((o) => !o)} isOpen={copilotOpen} />
+          <button onClick={() => setFormOpen(true)} className="hidden sm:flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors">
+            <Plus className="w-4 h-4" /> New Task
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
@@ -274,6 +280,8 @@ export default function Home() {
         categories={categories}
         onSaved={(savedTask) => navigate(`/tasks/${savedTask.id}`)}
       />
+
+      <CopilotChat open={copilotOpen} onClose={() => setCopilotOpen(false)} />
     </div>
   );
 }

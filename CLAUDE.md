@@ -36,8 +36,9 @@ celery -A config worker -B --loglevel=info
 ```
 
 Secrets live in `backend/.env` (gitignored) — `GROQ_API_KEY` for the
-copilot's LLM calls, DB/email/Cloudinary credentials. Never echo this
-file's contents verbatim in chat.
+copilot's LLM calls (`GEMINI_API_KEY` / `OPENROUTER_API_KEY` optionally too,
+see below), DB/email/Cloudinary credentials. Never echo this file's
+contents verbatim in chat.
 
 ## Testing
 
@@ -55,12 +56,13 @@ introduce new ones:
 - `conftest.py` has two important **autouse** fixtures that make tests
   hermetic — don't remove them:
   - `_use_local_file_storage` — forces local disk instead of real Cloudinary.
-  - `_no_real_llm_key` — forces `settings.GROQ_API_KEY = ""` for every test
-    by default, even though a real key lives in `.env`, so a test that
-    forgets to mock the LLM fails loudly instead of silently making a real
-    (billed, network-dependent) Groq call. Tests that specifically want the
-    "configured" path set `settings.GROQ_API_KEY` back explicitly within
-    the test.
+  - `_no_real_llm_key` — forces `settings.GROQ_API_KEY = ""`,
+    `settings.GEMINI_API_KEY = ""`, and `settings.OPENROUTER_API_KEY = ""`
+    for every test by default, even though real keys may live in `.env`,
+    so a test that forgets to mock the LLM fails loudly instead of
+    silently making a real (billed, network-dependent) call to any of the
+    three. Tests that specifically want the "configured" path set the
+    relevant `settings.*` back explicitly within the test.
 
 ## Backend app map
 
@@ -94,9 +96,21 @@ Architecture (built incrementally, "foundation first"):
   per-tool exception into a failed `ToolResult` instead of aborting the
   whole plan.
 - `llm/client.py` — `GroqClient`, thin wrapper over the Groq chat-completions
-  API. Every LLM call must check `is_configured` first and have a
-  deterministic fallback — nothing in this app may hard-crash for lack of a
-  key.
+  API. `llm/gemini_client.py` — `GeminiClient`, and `llm/openrouter_client.py`
+  — `OpenRouterClient`, identically-shaped wrappers over Google's Gemini API
+  and OpenRouter respectively (both expose an OpenAI-compatible endpoint, so
+  both reuse the `openai` package pointed at the provider's own base_url).
+  `llm/fallback_client.py` — `LLMClient`, the single entry point both chat
+  services and every agent actually use: tries Groq first (with its own
+  per-minute-rate-limit retry/backoff), then Gemini, then OpenRouter, each
+  only consulted if configured and only after the previous one's retries
+  are exhausted. `GEMINI_API_KEY` / `GEMINI_MODEL` (defaults to
+  `gemini-flash-latest`) and `OPENROUTER_API_KEY` / `OPENROUTER_MODEL`
+  (defaults to `openai/gpt-4o-mini`) are both optional — leave either or
+  both blank and the chain just stops earlier (Groq-only if neither is
+  set, exactly as before). Every LLM call must check `is_configured` first
+  and have a deterministic fallback — nothing in this app may hard-crash
+  for lack of a key.
 - `models.py` — `AgentRun`, `ToolCallLog`, `ConversationMessage`, `Recommendation`.
 - **8 agents** in `agents/`: `system_health`, `analytics`, `user_monitoring`,
   `task_intelligence`, `reminder`, `database_intelligence`, `recommendation`
