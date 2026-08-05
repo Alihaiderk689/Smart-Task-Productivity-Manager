@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+db.sqlite3
+celerybeat-schedule.db
+media
+staticfiles
+.env
+.git
+.gitignore
+*.md
+postman

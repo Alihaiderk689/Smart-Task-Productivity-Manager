@@ -22,6 +22,8 @@ local_settings.py
 .env
 .env.*
 .env.local
+!.env.example
+!*/.env.example
 \
 # Node / frontend
 node_modules/

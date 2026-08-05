@@ -127,6 +127,31 @@ cd backend && source .venv/bin/activate && celery -A config worker -B --loglevel
 
 Open the frontend at the URL Vite prints (typically `http://localhost:5173`).
 
+## Docker
+
+The whole stack (frontend, backend, Postgres, Redis, Celery worker + Beat)
+also runs via Docker Compose — no local Python/Node install required.
+
+```bash
+cp .env.example .env   # fill in SECRET_KEY, POSTGRES_PASSWORD, etc.
+docker compose up --build
+```
+
+Frontend: `http://localhost:8080` · Backend API: `http://localhost:8001/api`.
+The frontend's nginx reverse-proxies `/api/`, `/admin/`, `/static/`, and
+`/media/` to the backend container, so the published frontend image works
+unmodified on any host.
+
+Pre-built images are published to Docker Hub as
+[`alihaider310/taskflow-backend`](https://hub.docker.com/r/alihaider310/taskflow-backend)
+and [`alihaider310/taskflow-frontend`](https://hub.docker.com/r/alihaider310/taskflow-frontend).
+Anyone with `docker-compose.yml` and a filled-in `.env` can skip the build:
+
+```bash
+docker compose pull
+docker compose up
+```
+
 ## Testing
 
 ```bash

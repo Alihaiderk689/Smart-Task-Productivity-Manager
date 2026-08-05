@@ -41,7 +41,10 @@ SECRET_KEY = SECRET_KEY = os.getenv("SECRET_KEY")
 # False for the far more common "DEBUG=true" (lowercase) convention.
 DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if h.strip()
+]
 
 
 # Application definition
@@ -79,6 +82,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',  #add securityu features.
+    'whitenoise.middleware.WhiteNoiseMiddleware',   #serve collected static files directly (Docker/prod).
     'corsheaders.middleware.CorsMiddleware',        #controls which domains can access your API.
     'django.contrib.sessions.middleware.SessionMiddleware',     #manage user sessions.
     'django.middleware.common.CommonMiddleware',                #common request/response tasks.
@@ -194,6 +198,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.StaticFilesStorage'
 
 # User-uploaded files (e.g. profile avatars).
 # Stored on Cloudinary (free tier) when credentials are configured; falls
@@ -318,8 +324,8 @@ PASSWORD_RESET_TIMEOUT = 120
 
 
 #Using "Asia/Karachi" ensures reminder times match your users’ local timezone.
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
