@@ -17,4 +17,10 @@ celery==5.6.3
 redis==7.0.1
 groq==1.0.0
 openai==2.48.0   # also used for Google's Gemini and OpenRouter -- both expose an OpenAI-compatible chat completions endpoint (see copilot/llm/gemini_client.py, copilot/llm/openrouter_client.py)
+psycopg2-binary==2.9.12
+dj-database-url==3.0.1
+gunicorn==23.0.0
+whitenoise==6.8.2
+django-filter==25.1
+drf-yasg==1.21.10
 
