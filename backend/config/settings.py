@@ -46,6 +46,23 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# Render (and most PaaS hosts) terminate TLS at their own proxy and forward
+# plain HTTP to the container -- without telling Django to trust that proxy
+# header, SECURE_SSL_REDIRECT would redirect-loop (Django never sees the
+# request as HTTPS) and request.is_secure() would be wrong everywhere else
+# too (secure cookies, CORS/CSRF "https" checks). Only takes effect when
+# DEBUG=False, i.e. never for local/docker-compose dev.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+# Shared secret for the internal scheduled-tasks endpoint (core/views.py) --
+# GitHub Actions' scheduled-tasks.yml is the only caller. Not a Django
+# secret in the SECRET_KEY sense, but must never be committed or logged.
+INTERNAL_TASK_KEY = os.getenv("INTERNAL_TASK_KEY", "")
+
 
 # Application definition
 
@@ -257,6 +274,7 @@ REST_FRAMEWORK = {
     # everything else is unaffected.
     "DEFAULT_THROTTLE_RATES": {
         "auth": "10/min",
+        "internal_tasks": "20/min",
     },
 }
 
