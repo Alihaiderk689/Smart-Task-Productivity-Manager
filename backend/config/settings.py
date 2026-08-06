@@ -50,9 +50,11 @@ ALLOWED_HOSTS = [
 # plain HTTP to the container -- without telling Django to trust that proxy
 # header, SECURE_SSL_REDIRECT would redirect-loop (Django never sees the
 # request as HTTPS) and request.is_secure() would be wrong everywhere else
-# too (secure cookies, CORS/CSRF "https" checks). Only takes effect when
-# DEBUG=False, i.e. never for local/docker-compose dev.
-if not DEBUG:
+# too (secure cookies, CORS/CSRF "https" checks). Gated on ENVIRONMENT
+# (not DEBUG) -- CI sets DEBUG=False to catch debug-only bugs without
+# actually being a production deploy, and SECURE_SSL_REDIRECT would
+# 301-redirect every plain-HTTP test request, breaking the whole suite.
+if os.getenv("ENVIRONMENT", "development") == "production":
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
