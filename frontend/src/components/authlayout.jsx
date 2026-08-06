@@ -1,7 +1,7 @@
 import React from "react";
 import authArt from "@/assets/flow-auth.jpg";
 
-export default function AuthLayout({ icon: Icon, title, subtitle, footer, children }) {
+export default function AuthLayout({ icon: Icon, title, subtitle, footer = null, children }) {
   return (
     <div className="min-h-screen flex bg-background">
       <div

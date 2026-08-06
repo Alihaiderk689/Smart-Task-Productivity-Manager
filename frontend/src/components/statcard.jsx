@@ -1,4 +1,4 @@
-export default function StatCard({ icon: Icon, label, value, color, subtitle }) {
+export default function StatCard({ icon: Icon, label, value, color, subtitle = undefined }) {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm">
       <div className="flex items-start justify-between">

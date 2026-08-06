@@ -83,7 +83,7 @@ export function readAuthSession() {
 	};
 }
 
-export function setAuthSession({ access, refresh, user }) {
+export function setAuthSession({ access = undefined, refresh = undefined, user = undefined }) {
 	if (access) {
 		localStorage.setItem(ACCESS_TOKEN_KEY, access);
 	}
@@ -193,7 +193,7 @@ export async function profileRequest() {
 	return data;
 }
 
-export async function updateProfileRequest({ firstName, avatarFile }) {
+export async function updateProfileRequest({ firstName = undefined, avatarFile = undefined }) {
 	const formData = new FormData();
 	if (firstName !== undefined) {
 		formData.append("first_name", firstName);

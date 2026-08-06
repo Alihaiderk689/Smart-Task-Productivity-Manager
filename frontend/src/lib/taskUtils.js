@@ -98,6 +98,6 @@ export function groupTasksForDisplay(taskList) {
     }
   }
 
-  items.sort((a, b) => new Date(a.sortKey) - new Date(b.sortKey));
+  items.sort((a, b) => new Date(a.sortKey).getTime() - new Date(b.sortKey).getTime());
   return items;
 }
