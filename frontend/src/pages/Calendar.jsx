@@ -130,14 +130,14 @@ export default function Calendar() {
         {(() => {
           const upcoming = tasks
             .filter(t => t.end_time && t.status !== 'Completed')
-            .sort((a, b) => new Date(a.end_time) - new Date(b.end_time))
+            .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime())
             .slice(0, 8);
           if (upcoming.length === 0) return <p className="text-sm text-slate-400">No upcoming deadlines.</p>;
           return (
             <div className="space-y-2">
               {upcoming.map(task => {
                 const due = new Date(task.end_time);
-                const daysAway = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+                const daysAway = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                 const isOverdue = daysAway < 0;
                 const isToday = daysAway === 0;
                 return (

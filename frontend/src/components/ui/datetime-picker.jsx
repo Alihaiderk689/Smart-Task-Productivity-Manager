@@ -13,7 +13,7 @@ const LOCAL_FORMAT = "yyyy-MM-dd'T'HH:mm";
 // of the app already stores form state as -- swap-in replacement for
 // <input type="datetime-local">, just with a real calendar + time picker
 // instead of typed digit segments.
-export default function DateTimePicker({ id, value, onChange, placeholder = "Pick a date & time", required, minDate }) {
+export default function DateTimePicker({ id = undefined, value, onChange, placeholder = "Pick a date & time", required = false, minDate = undefined }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef(null);
 

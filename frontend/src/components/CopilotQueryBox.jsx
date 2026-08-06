@@ -14,8 +14,8 @@ export default function CopilotQueryBox({
   title = 'Ask the Copilot',
   placeholder = 'e.g. Which users have been inactive for 90+ days?',
   emptyHint = 'Ask about task stats, inactive users, overdue tasks, or ask it to propose an action for your approval.',
-  onProposed,
-  className,
+  onProposed = undefined,
+  className = undefined,
 }) {
   const [llmConfigured, setLlmConfigured] = useState(true);
   const [messages, setMessages] = useState([]);
