@@ -1,0 +1,32 @@
+name: Deploy to Render + Vercel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    # Pauses here for a manual approval before running any steps below --
+    # configure this environment's required reviewers under
+    # Settings -> Environments -> production in the GitHub repo.
+    environment: production
+    steps:
+      - name: Trigger Render deploy (backend)
+        run: curl -sf -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      - name: Trigger Vercel deploy (frontend)
+        run: curl -sf -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"
+
+      - name: Wait for both deploys to roll out
+        run: sleep 60
+
+      - name: Smoke test backend
+        run: curl -sf "${{ vars.RENDER_BACKEND_URL }}/admin/" -o /dev/null
+
+      - name: Smoke test frontend
+        run: curl -sf "${{ vars.VERCEL_FRONTEND_URL }}" -o /dev/null

@@ -1,0 +1,36 @@
+name: Scheduled tasks
+
+# Free-tier substitute for Celery Beat -- the deployed app has no
+# celery worker/beat/Redis, so this cron calls the internal endpoint
+# (backend/core/views.py::run_scheduled_tasks) on the same cadence
+# config/celery.py's beat_schedule would have used. Only runs from
+# whatever GitHub considers the default branch's copy of this file, so
+# it takes effect once this is merged to main.
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # system_health_check, reminder_check, action_agent_sweep
+    - cron: '0 9 * * *'      # daily_progress_reminders + the 5 daily copilot checks
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Job group to run manually (frequent | daily)'
+        required: true
+        default: frequent
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run frequent jobs
+        if: github.event.schedule == '*/15 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.group == 'frequent')
+        run: |
+          curl -sf -X POST \
+            -H "X-Internal-Task-Key: ${{ secrets.INTERNAL_TASK_KEY }}" \
+            "${{ vars.RENDER_BACKEND_URL }}/api/core/run-scheduled-tasks/?group=frequent"
+
+      - name: Run daily jobs
+        if: github.event.schedule == '0 9 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.group == 'daily')
+        run: |
+          curl -sf -X POST \
+            -H "X-Internal-Task-Key: ${{ secrets.INTERNAL_TASK_KEY }}" \
+            "${{ vars.RENDER_BACKEND_URL }}/api/core/run-scheduled-tasks/?group=daily"
