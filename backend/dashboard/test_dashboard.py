@@ -20,7 +20,12 @@ def test_dashboard_summary(auth_client, task_factory):
 
 @pytest.mark.django_db
 def test_today_tasks(auth_client, task_factory):
-    today_start = timezone.now().replace(hour=8, minute=0, second=0)
+    # localtime(), not now() -- now() is UTC, and replace(hour=8) on a UTC
+    # value drifts onto the wrong calendar date whenever UTC and
+    # settings.TIME_ZONE (Asia/Karachi, UTC+5) disagree on what day it is
+    # (happens ~5 hours a day), which flips this test against the view's
+    # timezone.localdate()-based "today".
+    today_start = timezone.localtime().replace(hour=8, minute=0, second=0)
     tomorrow_start = today_start + timedelta(days=1)
     
     task_factory(title="Today's Task", start_time=today_start)

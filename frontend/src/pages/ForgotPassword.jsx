@@ -29,7 +29,6 @@ export default function ForgotPassword() {
 
   return (
     <AuthLayout
-      icon={Mail}
       title="Reset password"
       subtitle="We'll send you a link to reset it"
       footer={

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { Loader2, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import AuthLayout from "@/components/authlayout";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage, resendVerificationEmailRequest, verifyEmailOtpRequest } from "@/services/api";
@@ -152,7 +152,7 @@ export default function VerifyEmail() {
 
   if (success) {
     return (
-      <AuthLayout icon={CheckCircle2} title="Email verified" subtitle="Your account is now active">
+      <AuthLayout title="Email verified" subtitle="Your account is now active">
         <p className="text-sm text-foreground text-center">
           You're logged in. Redirecting you to your dashboard...
         </p>
@@ -162,7 +162,6 @@ export default function VerifyEmail() {
 
   return (
     <AuthLayout
-      icon={ShieldCheck}
       title="Verify your email"
       subtitle={email ? `Enter the code we sent to ${email}` : "Enter your email and the code we sent you"}
       footer={
