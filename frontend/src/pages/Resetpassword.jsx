@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Lock, Loader2, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { Lock, Loader2, Clock } from "lucide-react";
 import AuthLayout from "@/components/authlayout";
 import { useAuth } from "@/context/AuthContext";
 import { confirmPasswordReset, getErrorMessage } from "@/services/api";
@@ -69,7 +69,6 @@ export default function ResetPassword() {
   if (!uid || !resetToken) {
     return (
       <AuthLayout
-        icon={AlertTriangle}
         title="Invalid reset link"
         subtitle="This password reset link is missing or invalid"
         footer={
@@ -87,7 +86,7 @@ export default function ResetPassword() {
 
   if (done) {
     return (
-      <AuthLayout icon={CheckCircle2} title="Password reset" subtitle="Your password has been updated">
+      <AuthLayout title="Password reset" subtitle="Your password has been updated">
         <p className="text-sm text-foreground text-center">
           You're logged in. Redirecting you to your dashboard...
         </p>
@@ -98,7 +97,6 @@ export default function ResetPassword() {
   if (expired) {
     return (
       <AuthLayout
-        icon={AlertTriangle}
         title="Link expired"
         subtitle="This password reset link is only valid for 2 minutes"
         footer={
@@ -116,7 +114,6 @@ export default function ResetPassword() {
 
   return (
     <AuthLayout
-      icon={Lock}
       title="New password"
       subtitle="Enter your new password below"
     >

@@ -8,6 +8,7 @@ from django.db import IntegrityError
 from django.http import JsonResponse
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from rest_framework import status
@@ -43,12 +44,19 @@ def hello(request):
 
 
 def _send_otp_email(user, code):
-    EmailService.send_email(
-        subject="Your Smart Task Manager verification code",
-        recipient=user.email,
-        template_name="emails/verify_email_otp.html",
-        context={"user": user, "code": code},
-    )
+    """Best-effort: the account/OTP already exist in the DB by the time this
+    runs, so a transient SMTP failure (bad/missing EMAIL_* env vars, provider
+    hiccup) shouldn't 500 the whole signup/resend request -- just log it so
+    it's visible, and let the user retry via the resend-verification flow."""
+    try:
+        EmailService.send_email(
+            subject="Your Smart Task Manager verification code",
+            recipient=user.email,
+            template_name="emails/verify_email_otp.html",
+            context={"user": user, "code": code},
+        )
+    except Exception:
+        logger.exception("Failed to send OTP email to user_id=%s email=%r", user.id, user.email)
 
 
 @api_view(["POST"])
@@ -160,7 +168,18 @@ def google_login(request):
             credential, google_requests.Request(), settings.GOOGLE_CLIENT_ID
         )
     except ValueError:
+        # Malformed/expired/wrong-audience token -- the credential itself is bad.
         return Response({"detail": "Invalid Google credential."}, status=status.HTTP_401_UNAUTHORIZED)
+    except GoogleAuthError:
+        # verify_oauth2_token() fetches Google's signing certs over HTTPS --
+        # a transient network/transport failure reaching Google raises this
+        # (not ValueError), so without this handler it fell through to a
+        # generic 500. It's not the user's fault, so make that distinction.
+        logger.exception("Google auth transport error while verifying credential")
+        return Response(
+            {"detail": "Couldn't reach Google to verify your sign-in. Please try again."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     email = (payload.get("email") or "").strip().lower()
     if not email or not payload.get("email_verified"):
@@ -357,12 +376,15 @@ def request_password_reset(request):
         token = default_token_generator.make_token(user)
         reset_link = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
 
-        EmailService.send_email(
-            subject="Reset your Smart Task Manager password",
-            recipient=user.email,
-            template_name="emails/password_reset.html",
-            context={"user": user, "reset_link": reset_link},
-        )
+        try:
+            EmailService.send_email(
+                subject="Reset your Smart Task Manager password",
+                recipient=user.email,
+                template_name="emails/password_reset.html",
+                context={"user": user, "reset_link": reset_link},
+            )
+        except Exception:
+            logger.exception("Failed to send password reset email to user_id=%s email=%r", user.id, user.email)
 
     return Response({"detail": GENERIC_RESET_MESSAGE}, status=status.HTTP_200_OK)
 
