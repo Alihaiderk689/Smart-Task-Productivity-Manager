@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button";
 
+/** @type {React.FC<React.HTMLAttributes<HTMLElement>>} */
 const Pagination = ({
   className,
   ...props
@@ -16,6 +17,7 @@ const Pagination = ({
 )
 Pagination.displayName = "Pagination"
 
+/** @type {React.ForwardRefExoticComponent<React.HTMLAttributes<HTMLUListElement> & React.RefAttributes<HTMLUListElement>>} */
 const PaginationContent = React.forwardRef(({ className, ...props }, ref) => (
   <ul
     ref={ref}
@@ -24,11 +26,13 @@ const PaginationContent = React.forwardRef(({ className, ...props }, ref) => (
 ))
 PaginationContent.displayName = "PaginationContent"
 
+/** @type {React.ForwardRefExoticComponent<React.LiHTMLAttributes<HTMLLIElement> & React.RefAttributes<HTMLLIElement>>} */
 const PaginationItem = React.forwardRef(({ className, ...props }, ref) => (
   <li ref={ref} className={cn("", className)} {...props} />
 ))
 PaginationItem.displayName = "PaginationItem"
 
+/** @type {React.FC<React.AnchorHTMLAttributes<HTMLAnchorElement> & import("class-variance-authority").VariantProps<typeof buttonVariants> & { isActive?: boolean }>} */
 const PaginationLink = ({
   className,
   isActive,
@@ -45,6 +49,7 @@ const PaginationLink = ({
 )
 PaginationLink.displayName = "PaginationLink"
 
+/** @type {React.FC<React.ComponentProps<typeof PaginationLink>>} */
 const PaginationPrevious = ({
   className,
   ...props
@@ -60,6 +65,7 @@ const PaginationPrevious = ({
 )
 PaginationPrevious.displayName = "PaginationPrevious"
 
+/** @type {React.FC<React.ComponentProps<typeof PaginationLink>>} */
 const PaginationNext = ({
   className,
   ...props
@@ -75,6 +81,7 @@ const PaginationNext = ({
 )
 PaginationNext.displayName = "PaginationNext"
 
+/** @type {React.FC<React.HTMLAttributes<HTMLSpanElement>>} */
 const PaginationEllipsis = ({
   className,
   ...props

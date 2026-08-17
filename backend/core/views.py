@@ -1,14 +1,35 @@
 import hmac
 import logging
+import time
 
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .throttling import InternalTaskRateThrottle
+from .system_checks import check_database
+from .throttling import HealthRateThrottle, InternalTaskRateThrottle
 
 logger = logging.getLogger(__name__)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@throttle_classes([HealthRateThrottle])
+def health(request):
+    """Lightweight liveness/readiness probe -- public on purpose (unlike
+    run-scheduled-tasks below, there's nothing sensitive here to protect),
+    so the scheduled-tasks workflow can poll it to wake a sleeping Render
+    free-tier instance and wait for it to actually be ready, without paying
+    the cost of a real scheduled-task run just to check reachability. Only
+    checks the database (the one dependency actually worth confirming
+    before running scheduled jobs) -- deliberately skips the heavier
+    Redis/Celery-worker checks in system_checks.get_system_status(), which
+    would just add latency and always report "down" in this brokerless
+    deployment (see .env.render)."""
+    db_ok = check_database()
+    return Response({"status": "ok" if db_ok else "error", "database": db_ok}, status=200 if db_ok else 503)
+
 
 # Free-tier substitute for Celery Beat: config/celery.py's beat_schedule is
 # the source of truth this mirrors, but the deployed environment has no
@@ -76,13 +97,48 @@ def run_scheduled_tasks(request):
     if jobs_factory is None:
         return Response({"error": "unknown or missing 'group' param"}, status=400)
 
+    jobs = jobs_factory()
     results = {}
-    for name, task_fn in jobs_factory().items():
+    duration_ms = {}
+    for name, task_fn in jobs.items():
+        started = time.monotonic()
         try:
             task_fn()
             results[name] = "ok"
         except Exception:
-            logger.exception("Scheduled task %s failed", name)
+            # Isolated per task on purpose -- one job (e.g. a flaky email
+            # send) failing must never stop the rest of the group from
+            # running; each task is independent and safe to keep going.
+            logger.exception("Scheduled task %r in group %r failed", name, group)
             results[name] = "error"
+        duration_ms[name] = int((time.monotonic() - started) * 1000)
 
-    return Response({"group": group, "results": results})
+    failed = [name for name, outcome in results.items() if outcome == "error"]
+    all_ok = not failed
+    all_failed = bool(failed) and len(failed) == len(results)
+
+    if all_ok:
+        status_code = 200
+    elif all_failed:
+        # Every job in the group errored -- almost certainly something
+        # systemic (DB down, bad deploy) rather than one flaky task, so
+        # this is a hard failure worth alerting on distinctly from a
+        # partial one.
+        status_code = 500
+    else:
+        # Mixed outcome: the request itself succeeded and most jobs ran
+        # fine, but not all of them -- 207 Multi-Status is the honest
+        # code for "processed, not uniformly successful". The workflow
+        # checks the `success` field in the body rather than relying on
+        # curl's --fail (which treats any 2xx, 207 included, as success),
+        # so this is still surfaced as a failed CI step.
+        status_code = 207
+
+    logger.info(
+        "Scheduled tasks group=%r results=%s duration_ms=%s", group, results, duration_ms,
+    )
+
+    return Response(
+        {"group": group, "success": all_ok, "results": results, "duration_ms": duration_ms},
+        status=status_code,
+    )

@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { MessageSquare, Send, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { copilotApi, getErrorMessage } from '@/services/api';
+import { Textarea } from '@/components/ui/textarea';
+import { MARKDOWN_COMPONENTS } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
 
 // Shared "ask the copilot" chat box -- same live Groq-backed chat used on
@@ -62,6 +66,15 @@ export default function CopilotQueryBox({
     }
   };
 
+  const handleKeyDown = (e) => {
+    // Enter sends; Shift+Enter inserts a newline (standard chat UX --
+    // ChatGPT/Copilot Chat/Intercom all do this).
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend(e);
+    }
+  };
+
   return (
     <div className={cn('bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-5', className)}>
       <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
@@ -76,13 +89,17 @@ export default function CopilotQueryBox({
             <div key={m.id} className={cn('flex', m.role === 'admin' ? 'justify-end' : 'justify-start')}>
               <div
                 className={cn(
-                  'max-w-[80%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap',
+                  'max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed',
                   m.role === 'admin'
                     ? 'bg-indigo-600 text-white rounded-br-sm'
                     : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-bl-sm'
                 )}
               >
-                {m.content}
+                {m.role === 'admin' ? (
+                  <p className="whitespace-pre-wrap">{m.content}</p>
+                ) : (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{m.content}</ReactMarkdown>
+                )}
               </div>
             </div>
           ))
@@ -97,14 +114,15 @@ export default function CopilotQueryBox({
       </div>
 
       {llmConfigured ? (
-        <form onSubmit={handleSend} className="flex items-center gap-2">
-          <input
-            type="text"
+        <form onSubmit={handleSend} className="flex items-end gap-2">
+          <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={sending}
-            className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-50"
+            rows={1}
+            className="flex-1 min-h-[42px] max-h-32 resize-none rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 py-2.5 focus-visible:ring-2 focus-visible:ring-indigo-500/30"
           />
           <button
             type="submit"

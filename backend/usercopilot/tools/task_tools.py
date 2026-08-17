@@ -24,7 +24,7 @@ from tasks.models import Task
 from tasks.serializers import TaskSerializer
 
 from ..services.category_resolver import create_category, list_category_names, resolve_category
-from ..services.date_resolver import resolve_datetime
+from ..services.date_resolver import format_friendly, resolve_datetime
 from .base import BaseTool, ToolResult
 
 _STATUS_CHOICES = [c[0] for c in Task.STATUS_CHOICES]
@@ -58,8 +58,8 @@ def _serialize_brief(task: Task) -> dict:
         "status": task.status,
         "priority": task.priority,
         "category": task.category.name,
-        "start_time": task.start_time.isoformat(),
-        "end_time": task.end_time.isoformat(),
+        "start_time": format_friendly(task.start_time),
+        "end_time": format_friendly(task.end_time),
     }
 
 
@@ -82,7 +82,7 @@ def resolve_task(user, task_id=None, title_query=None) -> tuple[Task | None, str
     if not matches:
         return None, f"I couldn't find a task matching \"{title_query}\"."
     if len(matches) > 1:
-        listed = "; ".join(f"\"{t.title}\" ({t.status}, due {timezone.localtime(t.end_time).strftime('%b %d, %I:%M %p')})" for t in matches)
+        listed = "; ".join(f"\"{t.title}\" ({t.status}, due {format_friendly(t.end_time)})" for t in matches)
         return None, f"I found more than one task matching \"{title_query}\": {listed}. Which one did you mean?"
     return matches[0], ""
 
@@ -423,7 +423,7 @@ class GetRemindersTool(BaseTool):
         reminders.sort(key=lambda r: r["at"])
 
         def fmt(r):
-            return {"task": r["task"], "type": r["type"], "at": r["at"].isoformat()}
+            return {"task": r["task"], "type": r["type"], "at": format_friendly(r["at"])}
 
         if when == "today":
             todays = [r for r in reminders if timezone.localtime(r["at"]).date() == today]

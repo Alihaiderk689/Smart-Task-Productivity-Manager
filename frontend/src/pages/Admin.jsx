@@ -12,10 +12,13 @@ import { statusConfig } from '@/lib/taskUtils';
 import { cn } from '@/lib/utils';
 import StatCard from '@/components/statcard';
 import CopilotQueryBox from '@/components/CopilotQueryBox';
+import PageControls from '@/components/PageControls';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from '@/components/ui/alert-dialog';
+
+const USERS_PAGE_SIZE = 10;
 
 // Matches the dot/badge colors statusConfig already uses elsewhere in the
 // app (taskcard.jsx, Calendar.jsx) -- the chart should agree with every
@@ -58,6 +61,7 @@ export default function Admin() {
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
+  const [usersPage, setUsersPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [actionUserId, setActionUserId] = useState(null);
 
@@ -102,6 +106,10 @@ export default function Admin() {
     const timer = setTimeout(() => { loadUsers(search); }, 300);
     return () => clearTimeout(timer);
   }, [search, loadUsers]);
+
+  // A new search is a new result set -- always start it from page 1 rather
+  // than wherever the previous search's pagination happened to be.
+  useEffect(() => { setUsersPage(1); }, [search]);
 
   const toggleActive = async (target) => {
     setActionUserId(target.id);
@@ -194,6 +202,13 @@ export default function Admin() {
       </div>
     );
   }
+
+  const usersTotalPages = Math.max(1, Math.ceil(users.length / USERS_PAGE_SIZE));
+  // Clamped rather than reset via effect -- covers a delete shrinking the
+  // list out from under whatever page the admin was on, without needing a
+  // separate "did the list just get shorter" effect.
+  const usersPageClamped = Math.min(usersPage, usersTotalPages);
+  const pagedUsers = users.slice((usersPageClamped - 1) * USERS_PAGE_SIZE, usersPageClamped * USERS_PAGE_SIZE);
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -332,7 +347,7 @@ export default function Admin() {
                   <td colSpan={5} className="px-4 py-10 text-center text-slate-400">No users found.</td>
                 </tr>
               ) : (
-                users.map((row) => (
+                pagedUsers.map((row) => (
                   <tr key={row.id} className="border-b border-slate-50 dark:border-slate-800/60 last:border-0">
                     <td className="px-4 py-3">
                       <p className="font-medium text-slate-900 dark:text-slate-100">{row.first_name || '—'}</p>
@@ -381,6 +396,11 @@ export default function Admin() {
             </tbody>
           </table>
         </div>
+        {usersTotalPages > 1 && (
+          <div className="px-4 pb-4">
+            <PageControls page={usersPageClamped} totalPages={usersTotalPages} onChange={setUsersPage} />
+          </div>
+        )}
       </div>
 
       {/* Per-user task list */}
