@@ -25,7 +25,14 @@ class CopilotConfig(AppConfig):
             ListOverdueTasksTool,
             ListStalePendingTasksTool,
         )
-        from .tools.user_tools import DeactivateUserTool, GetUserGrowthStatsTool, ListInactiveUsersTool
+        from .tools.user_tools import (
+            DeactivateUserTool,
+            DeleteUserTool,
+            GetUserGrowthStatsTool,
+            ListAllUsersTool,
+            ListInactiveUsersTool,
+            RenameUserTool,
+        )
 
         for tool_cls in (
             CheckDatabaseTool,
@@ -35,8 +42,11 @@ class CopilotConfig(AppConfig):
             GetProductivityTrendsTool,
             GetCategoryBreakdownTool,
             ListInactiveUsersTool,
+            ListAllUsersTool,
             GetUserGrowthStatsTool,
             DeactivateUserTool,
+            DeleteUserTool,
+            RenameUserTool,
             ListOverdueTasksTool,
             ListStalePendingTasksTool,
             GetTaskCompletionByCategoryTool,

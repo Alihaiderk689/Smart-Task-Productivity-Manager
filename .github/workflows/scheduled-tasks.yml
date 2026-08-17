@@ -6,6 +6,13 @@ name: Scheduled tasks
 # config/celery.py's beat_schedule would have used. Only runs from
 # whatever GitHub considers the default branch's copy of this file, so
 # it takes effect once this is merged to main.
+#
+# Render's free tier spins the backend down after inactivity -- a cold
+# start has been observed taking 70-110s, which is why this always wakes
+# it via the public /api/core/health/ endpoint (see backend/core/views.py)
+# and waits for a real 200 before ever calling the authenticated
+# run-scheduled-tasks endpoint. That endpoint stays INTERNAL_TASK_KEY-gated
+# throughout -- only the health check is public.
 on:
   schedule:
     - cron: '*/15 * * * *'   # system_health_check, reminder_check, action_agent_sweep
@@ -17,20 +24,138 @@ on:
         required: true
         default: frequent
 
+permissions:
+  contents: read
+
+# Queue rather than cancel -- a "daily" run overlapping a slow "frequent"
+# run should still happen, just not concurrently (see the "Make scheduled
+# execution retry-safe" note on the last step: most individual scheduled
+# tasks are already idempotent, but there's no reason to invite overlap
+# when it's this cheap to avoid).
+concurrency:
+  group: scheduled-tasks
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
-      - name: Run frequent jobs
-        if: github.event.schedule == '*/15 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.group == 'frequent')
+      - name: Determine job group
+        id: group
         run: |
-          curl -sf -X POST \
-            -H "X-Internal-Task-Key: ${{ secrets.INTERNAL_TASK_KEY }}" \
-            "${{ vars.RENDER_BACKEND_URL }}/api/core/run-scheduled-tasks/?group=frequent"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            group="${{ github.event.inputs.group }}"
+          elif [ "${{ github.event.schedule }}" = "*/15 * * * *" ]; then
+            group="frequent"
+          elif [ "${{ github.event.schedule }}" = "0 9 * * *" ]; then
+            group="daily"
+          else
+            group=""
+          fi
+          echo "Resolved job group: '${group:-<none>}'"
+          echo "group=$group" >> "$GITHUB_OUTPUT"
 
-      - name: Run daily jobs
-        if: github.event.schedule == '0 9 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.group == 'daily')
+      - name: Wait for Render to be ready
+        if: steps.group.outputs.group != ''
+        env:
+          BACKEND_URL: ${{ vars.RENDER_BACKEND_URL }}
         run: |
-          curl -sf -X POST \
-            -H "X-Internal-Task-Key: ${{ secrets.INTERNAL_TASK_KEY }}" \
-            "${{ vars.RENDER_BACKEND_URL }}/api/core/run-scheduled-tasks/?group=daily"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::The RENDER_BACKEND_URL repository variable is not set (Settings -> Secrets and variables -> Actions -> Variables)."
+            exit 1
+          fi
+
+          echo "Pinging $BACKEND_URL/api/core/health/ to wake the service and wait for readiness..."
+          echo "(Render free tier can take 70-110s to cold-start -- this retries for up to ~4 minutes.)"
+
+          # --retry-all-errors means both connection failures (still asleep,
+          # nothing listening yet) and a 503 (awake, DB not ready yet) get
+          # retried the same way -- this endpoint is unauthenticated and
+          # read-only, so liberal retrying here is safe.
+          if curl --silent --show-error --fail \
+              --connect-timeout 10 --max-time 30 \
+              --retry 15 --retry-delay 8 --retry-all-errors \
+              -o /dev/null -w 'health check HTTP status: %{http_code}\n' \
+              "$BACKEND_URL/api/core/health/"; then
+            echo "Backend is awake and healthy."
+          else
+            echo "::error::Backend never became healthy at $BACKEND_URL/api/core/health/ after retrying for ~4 minutes -- likely Render service suspension/outage rather than a normal cold start (which this already tolerates). Check the Render dashboard."
+            exit 1
+          fi
+
+      - name: Run scheduled tasks
+        if: steps.group.outputs.group != ''
+        env:
+          BACKEND_URL: ${{ vars.RENDER_BACKEND_URL }}
+          INTERNAL_TASK_KEY: ${{ secrets.INTERNAL_TASK_KEY }}
+          JOB_GROUP: ${{ steps.group.outputs.group }}
+        run: |
+          if [ -z "$INTERNAL_TASK_KEY" ]; then
+            echo "::error::The INTERNAL_TASK_KEY repository secret is not set (Settings -> Secrets and variables -> Actions -> Secrets)."
+            exit 1
+          fi
+
+          url="$BACKEND_URL/api/core/run-scheduled-tasks/?group=$JOB_GROUP"
+          echo "POSTing to run-scheduled-tasks (group=$JOB_GROUP)..."
+
+          # The backend already ran its cold start during the health check
+          # above, so this should be fast -- --max-time is generous mainly
+          # to cover several agent checks each doing their own DB (and,
+          # for the daily group, LLM) calls, not to wait out a cold start.
+          # --retry (default policy, no --retry-all-errors) only retries
+          # connection failures and 408/429/5xx -- a 404 (bad key/URL) or
+          # other definite 4xx fails immediately instead of wasting the
+          # retry budget on something retrying won't fix.
+          set +e
+          http_status=$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 120 \
+            --retry 3 --retry-delay 10 \
+            -o response.json -w '%{http_code}' \
+            -X POST -H "X-Internal-Task-Key: $INTERNAL_TASK_KEY" \
+            "$url")
+          curl_exit=$?
+          set -e
+
+          if [ "$curl_exit" -ne 0 ]; then
+            echo "::error::Connection/network failure reaching $BACKEND_URL after retries (curl exit code $curl_exit) -- this is a connectivity problem, not an application error. See https://curl.se/libcurl/c/libcurl-errors.html for the exit code meaning."
+            exit 1
+          fi
+
+          echo "HTTP status: $http_status"
+
+          if [ ! -s response.json ]; then
+            echo "::error::Empty response body from Render (HTTP $http_status)."
+            exit 1
+          fi
+
+          echo "Response body:"
+          cat response.json
+          echo
+
+          if [ "$http_status" = "404" ]; then
+            echo "::error::HTTP 404 -- this endpoint 404s on both an unknown route AND a rejected INTERNAL_TASK_KEY (deliberately, so an invalid key isn't distinguishable from the route not existing to a scanner). Double-check RENDER_BACKEND_URL and the INTERNAL_TASK_KEY secret match what's configured on Render."
+            exit 1
+          fi
+          if [ "$http_status" -ge 500 ] 2>/dev/null; then
+            echo "::error::Render returned HTTP $http_status -- an application-level failure (not connectivity), after retries were already exhausted by curl."
+            exit 1
+          fi
+          if [ "$http_status" != "200" ] && [ "$http_status" != "207" ]; then
+            echo "::error::Unexpected HTTP status $http_status."
+            exit 1
+          fi
+
+          success=$(jq -r '.success // empty' response.json)
+          echo "Overall success: ${success:-<missing>}"
+          echo "Per-task results:"
+          jq '.results // {}' response.json
+          echo "Per-task durations (ms):"
+          jq '.duration_ms // {}' response.json
+
+          if [ "$success" != "true" ]; then
+            echo "::error::One or more scheduled tasks failed (HTTP $http_status) -- see per-task results above for which one(s)."
+            exit 1
+          fi
+
+          echo "All scheduled tasks in group '$JOB_GROUP' completed successfully."

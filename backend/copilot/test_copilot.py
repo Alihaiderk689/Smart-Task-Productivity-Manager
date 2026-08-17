@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from django.contrib.auth.models import User
 from groq import RateLimitError
 from rest_framework import status
 
@@ -35,7 +36,14 @@ from copilot.tools.task_tools import (
     ListOverdueTasksTool,
     ListStalePendingTasksTool,
 )
-from copilot.tools.user_tools import DeactivateUserTool, GetUserGrowthStatsTool, ListInactiveUsersTool
+from copilot.tools.user_tools import (
+    DeactivateUserTool,
+    DeleteUserTool,
+    GetUserGrowthStatsTool,
+    ListAllUsersTool,
+    ListInactiveUsersTool,
+    RenameUserTool,
+)
 from tasks.models import Task
 
 # ---------------------------------------------------------------------------
@@ -969,6 +977,96 @@ def test_deactivate_user_tool_unknown_user():
 
 
 @pytest.mark.django_db
+def test_list_all_users_tool_includes_active_and_inactive(test_user):
+    test_user.is_active = False
+    test_user.save(update_fields=["is_active"])
+    result = ListAllUsersTool().run()
+    assert result.success is True
+    emails = [u["email"] for u in result.data["users"]]
+    assert test_user.email in emails
+
+
+@pytest.mark.django_db
+def test_list_all_users_tool_status_filter(test_user, other_user):
+    test_user.is_active = False
+    test_user.save(update_fields=["is_active"])
+    result = ListAllUsersTool().run(status="inactive")
+    emails = [u["email"] for u in result.data["users"]]
+    assert test_user.email in emails
+    assert other_user.email not in emails
+
+
+@pytest.mark.django_db
+def test_list_all_users_tool_keyword_filter(test_user, other_user):
+    result = ListAllUsersTool().run(keyword=test_user.email)
+    emails = [u["email"] for u in result.data["users"]]
+    assert test_user.email in emails
+    assert other_user.email not in emails
+
+
+@pytest.mark.django_db
+def test_delete_user_tool(test_user):
+    user_id = test_user.id
+    result = DeleteUserTool().run(user_id=user_id)
+    assert result.success is True
+    assert not User.objects.filter(id=user_id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_user_tool_refuses_staff(staff_user):
+    result = DeleteUserTool().run(user_id=staff_user.id)
+    assert result.success is False
+    assert User.objects.filter(id=staff_user.id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_user_tool_refuses_superuser(test_user):
+    test_user.is_superuser = True
+    test_user.save(update_fields=["is_superuser"])
+    result = DeleteUserTool().run(user_id=test_user.id)
+    assert result.success is False
+    assert User.objects.filter(id=test_user.id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_user_tool_unknown_user():
+    result = DeleteUserTool().run(user_id=999999)
+    assert result.success is False
+
+
+@pytest.mark.django_db
+def test_rename_user_tool(test_user):
+    result = RenameUserTool().run(user_id=test_user.id, new_name="New Name")
+    assert result.success is True
+    test_user.refresh_from_db()
+    assert test_user.first_name == "New Name"
+
+
+@pytest.mark.django_db
+def test_rename_user_tool_rejects_invalid_name(test_user):
+    result = RenameUserTool().run(user_id=test_user.id, new_name="123")
+    assert result.success is False
+    test_user.refresh_from_db()
+    assert test_user.first_name != "123"
+
+
+@pytest.mark.django_db
+def test_rename_user_tool_unknown_user():
+    result = RenameUserTool().run(user_id=999999, new_name="New Name")
+    assert result.success is False
+
+
+@pytest.mark.django_db
+def test_delete_user_and_rename_user_are_sensitive_and_excluded_from_chat_schema():
+    assert DeleteUserTool().is_sensitive is True
+    assert RenameUserTool().is_sensitive is True
+    schema_names = {t["function"]["name"] for t in ChatService()._chat_tools_schema()}
+    assert "delete_user" not in schema_names
+    assert "rename_user" not in schema_names
+    assert "list_all_users" in schema_names
+
+
+@pytest.mark.django_db
 def test_user_monitoring_agent_proposes_deactivation_for_dormant_zero_activity_user(test_user):
     from django.utils import timezone
     test_user.last_login = timezone.now() - timezone.timedelta(days=100)
@@ -1407,32 +1505,66 @@ def test_chat_service_refuses_sensitive_tool_even_if_requested(test_user):
 
 
 @pytest.mark.django_db
-def test_chat_service_propose_action_creates_pending_recommendation(test_user):
+def test_chat_service_propose_action_executes_immediately_for_the_admin_chatting(test_user, other_user):
+    # Chat's propose_action runs on behalf of whichever admin is chatting
+    # (this endpoint is IsAdminUser-gated), so it executes right away rather
+    # than sitting as a pending recommendation for someone else to approve.
     call = SimpleNamespace(
         id="call_1",
         function=SimpleNamespace(
             name="propose_action",
             arguments=(
                 '{"title": "Deactivate stale user", "description": "d", "tool": "deactivate_user", '
-                '"tool_input": {"user_id": 7}, "category": "users", "risk": "medium"}'
+                f'"tool_input": {{"user_id": {other_user.id}}}, "category": "users", "risk": "medium"}}'
             ),
         ),
     )
     responses = [
         _fake_groq_response(content="", tool_calls=[call]),
-        _fake_groq_response(content="I've proposed that for your approval."),
+        _fake_groq_response(content="Done -- I've deactivated that account."),
     ]
     fake_inner_client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: responses.pop(0)))
     )
     llm = GroqClient(api_key="fake-key")
     with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
-        result = ChatService(llm=llm).send(user=test_user, message="deactivate user 7, they're stale")
+        result = ChatService(llm=llm).send(user=test_user, message="deactivate that user, they're stale")
 
     assert result["proposed_recommendation"] is not None
     rec = Recommendation.objects.get(id=result["proposed_recommendation"]["recommendation_id"])
-    assert rec.status == "pending"
-    assert rec.action_payload == {"tool": "deactivate_user", "input": {"user_id": 7}}
+    assert rec.status == "executed"
+    assert rec.resolved_by == test_user
+    assert rec.action_payload == {"tool": "deactivate_user", "input": {"user_id": other_user.id}}
+    other_user.refresh_from_db()
+    assert other_user.is_active is False
+
+
+@pytest.mark.django_db
+def test_chat_service_propose_action_reports_execution_failure(test_user):
+    call = SimpleNamespace(
+        id="call_1",
+        function=SimpleNamespace(
+            name="propose_action",
+            arguments=(
+                '{"title": "Deactivate unknown user", "description": "d", "tool": "deactivate_user", '
+                '"tool_input": {"user_id": 999999}, "category": "users", "risk": "medium"}'
+            ),
+        ),
+    )
+    responses = [
+        _fake_groq_response(content="", tool_calls=[call]),
+        _fake_groq_response(content="That failed -- no such user."),
+    ]
+    fake_inner_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: responses.pop(0)))
+    )
+    llm = GroqClient(api_key="fake-key")
+    with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
+        result = ChatService(llm=llm).send(user=test_user, message="deactivate user 999999")
+
+    rec = Recommendation.objects.get(id=result["proposed_recommendation"]["recommendation_id"])
+    assert rec.status == "failed"
+    assert result["tool_calls"][0]["output"]["success"] is False
 
 
 @pytest.mark.django_db
@@ -1646,7 +1778,7 @@ def test_system_health_agent_does_not_duplicate_alert_across_runs():
 def test_chat_service_run_tool_catches_tool_exception(test_user):
     with patch("copilot.tools.analytics_tools.GetTaskStatsTool.run", side_effect=RuntimeError("db is down")):
         service = ChatService(llm=GroqClient(api_key="fake-key"))
-        output = service._run_tool("get_task_stats", {})
+        output = service._run_tool("get_task_stats", {}, user=test_user)
 
     assert output["success"] is False
     assert "db is down" in output["error"]
