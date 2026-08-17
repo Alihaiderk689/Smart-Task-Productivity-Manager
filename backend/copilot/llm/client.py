@@ -16,7 +16,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 class LLMNotConfiguredError(RuntimeError):

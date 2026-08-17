@@ -1,10 +1,14 @@
 """Chat orchestrator -- turns a free-form admin message into an LLM
 response, optionally calling read-only tools along the way. The LLM's only
 means of causing a mutation is calling propose_action (see
-tools/action_tools.py), which creates a pending Recommendation for a human
-to separately approve; every genuinely sensitive tool is deliberately left
-out of the schema handed to the model here, so there is no path from chat
-straight to a data-changing tool call, even a hallucinated one.
+tools/action_tools.py), which logs a Recommendation for audit purposes and
+then immediately executes it on behalf of the admin sending this message
+-- this endpoint is IsAdminUser-gated (see views.py::chat_send), so by the
+time a message reaches here a human admin has already given the order.
+Every genuinely sensitive tool is still deliberately left out of the
+schema handed to the model directly -- propose_action is the only path
+from chat to a data-changing tool call, so it's the one place that needs
+to inject who's asking.
 """
 
 from __future__ import annotations
@@ -21,22 +25,26 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are the Admin Copilot for a task-management app called TaskFlow. You help the admin "
-    "understand the state of the system by calling the read-only tools available to you. "
-    "You must NEVER claim to have performed an action yourself. If the admin asks you to do "
-    "something that changes data (deactivate a user, send a reminder, etc.), call the "
-    "propose_action tool instead of doing it yourself -- this creates a pending recommendation "
-    "that a human admin must separately review and approve. Be concise and factual; base answers "
-    "only on tool results, not guesses. If a tool call fails, say so plainly rather than making "
-    "up an answer.\n\n"
+    "understand the state of the system by calling the read-only tools available to you, and "
+    "carry out actions that change data by calling the propose_action tool -- you're always "
+    "talking to a logged-in admin here, so propose_action runs immediately on their behalf, it "
+    "does not just create something for someone else to approve later. For a genuinely "
+    "destructive, irreversible action (delete_user, delete_completed_tasks), get an explicit yes "
+    "from the admin in this chat first; for lower-risk actions (deactivate_user, rename_user, "
+    "send_reminder) you may call propose_action directly once the admin has asked for it. Report "
+    "back what actually happened (success or failure) using the tool's result -- never claim to "
+    "have performed an action without calling propose_action, and never claim success if it "
+    "reported failure. Be concise and factual; base answers only on tool results, not guesses. "
+    "If a tool call fails, say so plainly rather than making up an answer.\n\n"
     "propose_action's 'tool' argument must be the EXACT name of one of the actions listed below "
     "-- never invent a plausible-sounding tool name, and never substitute a different action "
     "just because nothing listed matches. If the admin asks for something none of these actions "
-    "can do (e.g. renaming a user, editing a task's title), say plainly that this isn't something "
-    "you're able to do yet -- do not propose a different, unrelated action instead, even a "
-    "seemingly related or lower-risk one."
+    "can do (e.g. editing a task's title), say plainly that this isn't something you're able to "
+    "do yet -- do not propose a different, unrelated action instead, even a seemingly related or "
+    "lower-risk one."
 )
 
-MAX_TOOL_ROUNDS = 4
+MAX_TOOL_ROUNDS = 6
 FALLBACK_REPLY = "I gathered some information but couldn't finish reasoning about it -- try rephrasing your question."
 LLM_OUTAGE_REPLY = "I'm having trouble reaching the AI service right now -- please try again in a moment."
 
@@ -88,12 +96,17 @@ class ChatService:
         ]
         return SYSTEM_PROMPT + "\n\nActions available via propose_action (use the exact tool name):\n" + "\n".join(lines)
 
-    def _run_tool(self, name: str, arguments: dict) -> dict:
+    def _run_tool(self, name: str, arguments: dict, *, user) -> dict:
         if name not in self.tools:
             return {"success": False, "error": f"Tool {name!r} is not available."}
         tool = self.tools.get(name)
         if tool.is_sensitive:
             return {"success": False, "error": f"Tool {name!r} is not available for direct chat use -- use propose_action instead."}
+        if name == "propose_action":
+            # Not part of propose_action's input_schema, so the LLM never
+            # sees or sets this itself -- it's how the tool knows which
+            # admin it's executing on behalf of (see tools/action_tools.py).
+            arguments = {**arguments, "_requested_by": user}
         try:
             return tool.run(**arguments).to_dict()
         except Exception as exc:
@@ -143,13 +156,18 @@ class ChatService:
             })
 
             for call in result.tool_calls:
-                tool_result = self._run_tool(call.name, call.arguments)
-                if call.name == "propose_action" and tool_result.get("success"):
-                    # A single exchange can call propose_action more than
-                    # once (e.g. proposing several users in one turn) --
-                    # keep every one of them, not just whichever happened
-                    # last, so a caller cleaning up after itself (see
-                    # evaluation/fixtures.py) can actually find them all.
+                tool_result = self._run_tool(call.name, call.arguments, user=user)
+                if call.name == "propose_action" and (tool_result.get("data") or {}).get("recommendation_id"):
+                    # A recommendation is logged whether or not execution
+                    # itself went on to succeed (see tools/action_tools.py),
+                    # so key off recommendation_id, not tool_result["success"]
+                    # -- otherwise a failed execution would lose the
+                    # reference entirely. A single exchange can call
+                    # propose_action more than once (e.g. proposing several
+                    # users in one turn) -- keep every one of them, not just
+                    # whichever happened last, so a caller cleaning up after
+                    # itself (see evaluation/fixtures.py) can actually find
+                    # them all.
                     proposed_recommendation = tool_result.get("data")
                     proposed_recommendations.append(tool_result.get("data"))
 

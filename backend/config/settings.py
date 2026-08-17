@@ -277,6 +277,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "auth": "10/min",
         "internal_tasks": "20/min",
+        "health": "60/min",
     },
 }
 
@@ -322,7 +323,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 # deterministic checks/tools but skips LLM-generated reasoning/chat --
 # see GroqClient.is_configured.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
+GROQ_MODEL = os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b"
 
 # Google's Gemini API -- automatic fallback when Groq's calls are exhausted
 # (daily quota, outage, etc.), see copilot/llm/fallback_client.py::LLMClient.

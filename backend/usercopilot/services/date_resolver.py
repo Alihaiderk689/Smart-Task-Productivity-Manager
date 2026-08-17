@@ -36,6 +36,14 @@ def resolve_datetime(value):
     return parsed, ""
 
 
+def format_friendly(dt) -> str:
+    """Human-friendly, localized rendering for anything shown to the user in
+    chat (e.g. "Aug 9, 2026, 02:00 PM") -- tool results should always use
+    this instead of dt.isoformat(), which leaks a raw UTC offset the LLM
+    tends to repeat verbatim back to the user."""
+    return timezone.localtime(dt).strftime("%b %d, %Y, %I:%M %p")
+
+
 def current_context_line() -> str:
     """One line for the chat system prompt giving the LLM "now", so it can
     resolve relative phrases into real ISO datetimes on its own."""

@@ -8,8 +8,14 @@ import { copilotApi, getErrorMessage } from '@/services/api';
 import { cn } from '@/lib/utils';
 import StatCard from '@/components/statcard';
 import CopilotQueryBox from '@/components/CopilotQueryBox';
+import PageControls from '@/components/PageControls';
 
 const CHAT_SESSION_ID = 'default';
+// Both lists are fetched in full (capped at 50 server-side, see
+// copilot/views.py::RecommendationListView/AgentRunListView) and paged
+// client-side, since 50 items is small enough that a second round-trip per
+// page would just add latency for no real benefit.
+const PAGE_SIZE = 5;
 
 const RISK_BADGE = {
   low: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',
@@ -38,6 +44,8 @@ export default function AdminCopilot() {
   const [selectedRun, setSelectedRun] = useState(null);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [resolvingId, setResolvingId] = useState(null);
+  const [recPage, setRecPage] = useState(1);
+  const [runsPage, setRunsPage] = useState(1);
 
   const loadAll = useCallback(async () => {
     const [summaryRes, agentsRes, recsRes, runsRes] = await Promise.all([
@@ -50,6 +58,12 @@ export default function AdminCopilot() {
     setAgents(agentsRes.data);
     setRecommendations(recsRes.data);
     setRuns(runsRes.data);
+    // Resolving/approving a recommendation or running an agent can shrink
+    // either list enough that the page we were on no longer exists --
+    // simplest correct behavior is to just snap back to page 1 on any
+    // reload rather than trying to preserve a now-possibly-invalid page.
+    setRecPage(1);
+    setRunsPage(1);
   }, []);
 
   useEffect(() => {
@@ -108,6 +122,11 @@ export default function AdminCopilot() {
       </div>
     );
   }
+
+  const recTotalPages = Math.max(1, Math.ceil(recommendations.length / PAGE_SIZE));
+  const pagedRecommendations = recommendations.slice((recPage - 1) * PAGE_SIZE, recPage * PAGE_SIZE);
+  const runsTotalPages = Math.max(1, Math.ceil(runs.length / PAGE_SIZE));
+  const pagedRuns = runs.slice((runsPage - 1) * PAGE_SIZE, runsPage * PAGE_SIZE);
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -180,7 +199,7 @@ export default function AdminCopilot() {
             <p className="text-sm text-slate-400 text-center py-8">No pending recommendations. All clear.</p>
           ) : (
             <div className="space-y-2">
-              {recommendations.map((rec) => (
+              {pagedRecommendations.map((rec) => (
                 <div key={rec.id} className="p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{rec.title}</p>
@@ -225,6 +244,7 @@ export default function AdminCopilot() {
               ))}
             </div>
           )}
+          <PageControls page={recPage} totalPages={recTotalPages} onChange={setRecPage} />
         </div>
 
         {/* Recent runs / timeline */}
@@ -234,7 +254,7 @@ export default function AdminCopilot() {
             <p className="text-sm text-slate-400 text-center py-8">No runs yet -- click "Run Now" on an agent above.</p>
           ) : (
             <div className="space-y-2">
-              {runs.map((run) => (
+              {pagedRuns.map((run) => (
                 <button
                   key={run.id}
                   onClick={() => openRunDetail(run)}
@@ -250,6 +270,7 @@ export default function AdminCopilot() {
               ))}
             </div>
           )}
+          <PageControls page={runsPage} totalPages={runsTotalPages} onChange={setRunsPage} />
         </div>
       </div>
 

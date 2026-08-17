@@ -14,6 +14,25 @@ class NotificationService:
 
     @staticmethod
     def schedule_reminders(task):
+        # KNOWN GAP (documented, not fixed here -- see backend/core/views.py
+        # and .github/workflows/scheduled-tasks.yml for the actual scheduler
+        # hardening this task was scoped to): apply_async(eta=...) below
+        # requires a live Celery worker consuming CELERY_BROKER_URL. Local
+        # dev has one (`celery worker -B` + Redis, see CLAUDE.md); the
+        # deployed Render environment deliberately does not (.env.render).
+        # Verified directly against an unreachable broker: apply_async does
+        # NOT raise (so task creation itself is safe either way), but the
+        # message is never delivered -- these four one-shot reminders
+        # silently never fire in production. The scheduled-task sweep does
+        # NOT cover this gap: copilot.agents.reminder.ReminderAgent's
+        # 15-minute "reminder_check" (run via scheduled-tasks.yml) only
+        # detects a missed reminder and proposes sending it for manual
+        # admin approval -- it does not auto-send. Closing this gap for
+        # real (e.g. having the scheduled sweep execute missed reminders
+        # automatically, or moving this scheduling onto the same sweep
+        # instead of apply_async) is a deliberate product/risk decision
+        # about unattended email-sending, not a mechanical fix, so it's
+        # left to a follow-up rather than folded into scheduler hardening.
 
         version = task.reminder_version
 
