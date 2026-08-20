@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import RetrieveUpdateDestroyAPIView
 
+from notifications.reminder_processor import cancel_pending_reminders
 from notifications.services import NotificationService
 
 from .models import Task
@@ -38,6 +39,33 @@ class TaskDetailView(RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Task.objects.filter(user=self.request.user)
+
+    def perform_update(self, serializer):
+        original_start = serializer.instance.start_time
+        original_end = serializer.instance.end_time
+        task = serializer.save()
+
+        if task.start_time != original_start or task.end_time != original_end:
+            # A plain PATCH/PUT changing the schedule previously left
+            # reminders scheduled against the old time entirely untouched
+            # (a latent gap found while building the database-backed
+            # reminder system) -- mirrors reschedule_task's own
+            # reminder-invalidation below, without touching this
+            # endpoint's other fields (status, started_at/completed_at)
+            # the way the dedicated reschedule action deliberately does; a
+            # generic edit shouldn't restart the task's lifecycle, only
+            # its reminders.
+            task.reminder_30_sent = False
+            task.reminder_5_sent = False
+            task.reminder_progress_sent = False
+            task.reminder_overdue_sent = False
+            task.last_daily_reminder_date = None
+            task.reminder_version += 1
+            task.save(update_fields=[
+                "reminder_30_sent", "reminder_5_sent", "reminder_progress_sent",
+                "reminder_overdue_sent", "last_daily_reminder_date", "reminder_version",
+            ])
+            NotificationService.schedule_reminders(task)
 
 
 @api_view(["POST"])
@@ -263,6 +291,7 @@ def stop_task(request, pk):
     task.status = "Completed"
     task.completed_at = timezone.now()
     task.save()
+    cancel_pending_reminders(task)
 
     return Response({
         "message": "Task completed successfully.",

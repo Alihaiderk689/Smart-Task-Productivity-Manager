@@ -473,7 +473,19 @@ def test_trigger_reminder_overdue_sends_email_and_marks_missed(staff_client, tes
 
 @pytest.mark.django_db
 def test_trigger_reminder_does_not_resend_already_sent(staff_client, test_user, task_factory):
+    # "Already sent" is now tracked by the Reminder row's own status (see
+    # notifications/reminder_processor.py) rather than Task.reminder_30_sent
+    # directly -- that boolean is just a denormalized read cache the
+    # processor updates alongside the real state, so the real state (a
+    # SENT Reminder row) is what has to exist here for this to be a
+    # faithful test of the "don't resend" guarantee.
+    from notifications.models import Reminder
+
     task = task_factory(user=test_user, status="Pending", reminder_30_sent=True)
+    Reminder.objects.create(
+        task=task, kind=Reminder.Kind.THIRTY_MIN, scheduled_for=timezone.now(),
+        generation=task.reminder_version, status=Reminder.Status.SENT, sent_at=timezone.now(),
+    )
 
     response = staff_client.post(f"/api/admin/tasks/{task.id}/trigger-reminder/", {"type": "30min"}, format="json")
 

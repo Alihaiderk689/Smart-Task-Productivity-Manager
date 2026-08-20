@@ -17,23 +17,39 @@ on:
   schedule:
     - cron: '*/15 * * * *'   # system_health_check, reminder_check, action_agent_sweep
     - cron: '0 9 * * *'      # daily_progress_reminders + the 5 daily copilot checks
+    - cron: '*/5 * * * *'    # process_due_reminders -- see "Why reminders gets its own cadence" below
   workflow_dispatch:
     inputs:
       group:
-        description: 'Job group to run manually (frequent | daily)'
+        description: 'Job group to run manually (frequent | daily | reminders)'
         required: true
         default: frequent
 
 permissions:
   contents: read
 
-# Queue rather than cancel -- a "daily" run overlapping a slow "frequent"
-# run should still happen, just not concurrently (see the "Make scheduled
-# execution retry-safe" note on the last step: most individual scheduled
-# tasks are already idempotent, but there's no reason to invite overlap
+# Why reminders gets its own cadence and its own concurrency group: the
+# app has a 5-minutes-before-start reminder, which a 15-minute sweep can't
+# serve reliably (worst case, up to ~15 minutes late -- after the task
+# already started). A dedicated */5 cron fixes that; keeping the other two
+# groups at their existing cadence keeps GitHub Actions cron comfortably
+# above the sub-5-minute range GitHub's own docs call unreliable under
+# load, and avoids paying Render's 70-110s cold start more often than
+# needed for the heavier, LLM-backed frequent/daily jobs. process_due_reminders
+# itself is pure DB queries + SMTP (no LLM calls), so running it this often
+# stays cheap.
+#
+# Concurrency is keyed per-group (not one shared "scheduled-tasks" group)
+# specifically so a reminders run is never queued behind a slow
+# frequent/daily run (or vice versa) -- each job group still queues rather
+# than overlaps with *itself* (most individual scheduled tasks are already
+# idempotent -- see the "Make scheduled execution retry-safe" note on the
+# last step below -- and the reminder processor's own atomic claiming, see
+# notifications/reminder_processor.py, is safe under overlap regardless,
+# but there's no reason to invite wasted concurrent Render cold-starts
 # when it's this cheap to avoid).
 concurrency:
-  group: scheduled-tasks
+  group: scheduled-tasks-${{ github.event.schedule || github.event.inputs.group }}
   cancel-in-progress: false
 
 jobs:
@@ -50,6 +66,8 @@ jobs:
             group="frequent"
           elif [ "${{ github.event.schedule }}" = "0 9 * * *" ]; then
             group="daily"
+          elif [ "${{ github.event.schedule }}" = "*/5 * * * *" ]; then
+            group="reminders"
           else
             group=""
           fi
