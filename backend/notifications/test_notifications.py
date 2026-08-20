@@ -1,10 +1,34 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from django.core import mail
 from django.utils import timezone
 
+from notifications.models import Reminder
+from notifications.services import NotificationService
 from notifications.tasks import send_daily_progress_reminders, send_overdue_reminder
+
+
+@pytest.mark.django_db
+def test_schedule_reminders_returns_true_on_success(task_factory):
+    task = task_factory(start_time=timezone.now() + timedelta(hours=2), end_time=timezone.now() + timedelta(hours=3))
+
+    result = NotificationService.schedule_reminders(task)
+
+    assert result is True
+    assert Reminder.objects.filter(task=task).count() == 4
+
+
+@pytest.mark.django_db
+def test_schedule_reminders_never_raises_and_returns_false_on_failure(task_factory):
+    task = task_factory(start_time=timezone.now() + timedelta(hours=2), end_time=timezone.now() + timedelta(hours=3))
+
+    with patch("notifications.services.generate_reminders_for_task", side_effect=ConnectionError("db unreachable")):
+        result = NotificationService.schedule_reminders(task)  # must not raise
+
+    assert result is False
+    assert Reminder.objects.filter(task=task).count() == 0
 
 
 @pytest.mark.django_db

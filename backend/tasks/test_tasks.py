@@ -48,6 +48,23 @@ def test_create_task_success(auth_client, test_user, category_factory):
     assert Task.objects.filter(title="Build Pytest", user=test_user).exists()
 
 @pytest.mark.django_db
+def test_create_task_succeeds_even_if_reminder_scheduling_fails(auth_client, test_user, category_factory):
+    # Regression test: reminder scheduling is a side effect of creating a
+    # task, never a precondition -- a DB hiccup while inserting Reminder
+    # rows must not 500 the whole create request (see
+    # notifications/services.py::NotificationService.schedule_reminders,
+    # which never lets this kind of exception escape). Patches
+    # generate_reminders_for_task (what schedule_reminders calls
+    # internally) rather than schedule_reminders itself, so the real
+    # try/except under test actually runs.
+    category = category_factory(user=test_user)
+    with patch("notifications.services.generate_reminders_for_task", side_effect=ConnectionError("db unreachable")):
+        response = auth_client.post("/api/tasks/", _task_payload(category), format="json")
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert Task.objects.filter(title="Build Pytest", user=test_user).exists()
+
+@pytest.mark.django_db
 def test_create_task_rejects_title_over_20_words(auth_client, test_user, category_factory):
     category = category_factory(user=test_user)
     long_title = " ".join(["word"] * 21)
@@ -191,6 +208,22 @@ def test_create_repeating_tasks_schedules_reminders_per_occurrence(auth_client, 
 
     assert response.status_code == status.HTTP_201_CREATED
     assert mock_schedule.call_count == 3
+
+@pytest.mark.django_db
+def test_create_repeating_tasks_all_created_even_if_reminder_scheduling_fails(auth_client, test_user, category_factory):
+    # Regression test: all occurrences are created inside one
+    # transaction.atomic() block (see create_repeating_tasks) -- before
+    # NotificationService.schedule_reminders stopped letting exceptions
+    # escape, a reminder-scheduling failure on any single occurrence would
+    # have rolled back the *entire* batch, silently deleting every
+    # already-created task in it.
+    category = category_factory(user=test_user)
+
+    with patch("notifications.services.generate_reminders_for_task", side_effect=ConnectionError("db unreachable")):
+        response = auth_client.post("/api/tasks/repeat/", _repeat_payload(category, repeat_days=3), format="json")
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert Task.objects.filter(user=test_user, repeat_total=3).count() == 3
 
 @pytest.mark.parametrize("repeat_days", [1, 31, 0, -1])
 @pytest.mark.django_db
@@ -487,6 +520,25 @@ def test_reschedule_task_resets_overdue_reminder_flag(auth_client, task_factory)
     assert task.last_daily_reminder_date is None
 
 
+@pytest.mark.django_db
+def test_reschedule_task_succeeds_even_if_reminder_scheduling_fails(auth_client, task_factory):
+    task = task_factory(status="Completed")
+    new_start = timezone.now() + timedelta(days=1)
+    new_end = new_start + timedelta(hours=1)
+
+    with patch("notifications.services.generate_reminders_for_task", side_effect=ConnectionError("db unreachable")):
+        response = auth_client.post(
+            f"/api/tasks/{task.id}/reschedule/",
+            {"start_time": new_start.isoformat(), "end_time": new_end.isoformat()},
+            format="json",
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    task.refresh_from_db()
+    assert task.status == "Pending"
+    assert task.start_time == new_start
+
+
 # ---------------------------------------------------------------------------
 # Reminder regeneration on a plain PATCH (TaskDetailView.perform_update) --
 # this endpoint previously had no reminder-invalidation handling at all,
@@ -541,6 +593,28 @@ def test_patch_not_changing_times_does_not_bump_reminder_version(auth_client, ta
     task.refresh_from_db()
     assert task.reminder_version == old_version
     assert task.description == "updated"
+
+
+@pytest.mark.django_db
+def test_patch_changing_time_succeeds_even_if_reminder_scheduling_fails(auth_client, task_factory):
+    task = task_factory(
+        status="Pending",
+        start_time=timezone.now() + timedelta(hours=2),
+        end_time=timezone.now() + timedelta(hours=3),
+    )
+    new_start = timezone.now() + timedelta(days=1)
+    new_end = new_start + timedelta(hours=1)
+
+    with patch("notifications.services.generate_reminders_for_task", side_effect=ConnectionError("db unreachable")):
+        response = auth_client.patch(
+            f"/api/tasks/{task.id}/",
+            {"start_time": new_start.isoformat(), "end_time": new_end.isoformat()},
+            format="json",
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    task.refresh_from_db()
+    assert task.start_time == new_start
 
 
 @pytest.mark.django_db
