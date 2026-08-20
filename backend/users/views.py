@@ -16,7 +16,8 @@ from rest_framework.decorators import api_view, parser_classes, permission_class
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from categories.services import create_default_categories
@@ -33,6 +34,13 @@ from .serializers import (
     UserSerializer,
 )
 from .throttling import AuthRateThrottle
+from .token_cookies import (
+    REFRESH_COOKIE_NAME,
+    clear_refresh_cookie,
+    issue_tokens,
+    revoke_all_outstanding_tokens,
+    set_refresh_cookie,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,15 +147,11 @@ def login(request):
         logger.info("Login failed: invalid credentials for email=%r", email)
         return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-    refresh = RefreshToken.for_user(user)
-
-    return Response(
-        {
-            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-        }
+    response = Response(
+        {"user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff}}
     )
+    response.data["access"] = issue_tokens(response, user)
+    return response
 
 
 @api_view(["POST"])
@@ -200,19 +204,23 @@ def google_login(request):
         create_default_categories(user)
     elif not user.is_active:
         # They'd signed up with email/password but never verified -- Google
-        # just proved they own the address, so unblock the account.
+        # just proved they own the address, so unblock the account. The
+        # existing password was set by whoever created this account, which
+        # is not necessarily the person who just proved ownership via
+        # Google (an attacker can pre-register someone else's email with a
+        # password only the attacker knows, then wait for the real owner
+        # to "Sign in with Google") -- so it must be invalidated here
+        # rather than trusted, exactly like a fresh Google-only signup
+        # (see SECURITY.md's OAuth account-linking gap).
         user.is_active = True
-        user.save(update_fields=["is_active"])
+        user.set_unusable_password()
+        user.save(update_fields=["is_active", "password"])
 
-    refresh = RefreshToken.for_user(user)
-
-    return Response(
-        {
-            "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-        }
+    response = Response(
+        {"user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff}}
     )
+    response.data["access"] = issue_tokens(response, user)
+    return response
 
 
 @api_view(["POST"])
@@ -239,17 +247,15 @@ def verify_email_otp(request):
     user.save(update_fields=["is_active"])
 
     # Log the user straight into their account now that it's verified.
-    refresh = RefreshToken.for_user(user)
-
-    return Response(
+    response = Response(
         {
             "detail": "Email verified successfully.",
             "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
         },
         status=status.HTTP_200_OK,
     )
+    response.data["access"] = issue_tokens(response, user)
+    return response
 
 
 GENERIC_VERIFICATION_RESEND_MESSAGE = "If an account exists for that email and still needs verification, a new code has been sent."
@@ -334,25 +340,91 @@ def change_password(request):
     user.set_password(serializer.validated_data["new_password"])
     user.save(update_fields=["password"])
 
-    return Response({"detail": "Password changed successfully."})
+    # Blacklists every outstanding refresh token for this user, so a
+    # stolen refresh token (or a session on another device) can't mint
+    # any more access tokens after this. This does NOT invalidate an
+    # access token still within its own lifetime -- SimpleJWT's blacklist
+    # is only consulted during refresh, never on ordinary authenticated
+    # requests -- which is exactly why ACCESS_TOKEN_LIFETIME is kept
+    # short (config/settings.py). The current request's own session ends
+    # too: the caller's refresh cookie is cleared below, so continuing to
+    # use this device also requires logging back in.
+    revoke_all_outstanding_tokens(user)
+
+    response = Response({"detail": "Password changed successfully. Please sign in again."})
+    clear_refresh_cookie(response)
+    return response
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
 def logout(request):
-    """Blacklist the provided refresh token so it can no longer be used."""
-    token = request.data.get("refresh")
+    """Blacklist the refresh token cookie so it can no longer be used, and
+    clear it. JSON-only parsing (no form/multipart) is deliberate: a
+    classic cross-site <form> POST can't set Content-Type: application/json,
+    so this alone -- combined with the CORS origin allowlist blocking a
+    cross-origin fetch() from setting it either -- is what stops a forged
+    cross-site request from riding this cookie (see SECURITY.md's CSRF
+    section)."""
+    # DRF only negotiates/validates the request's Content-Type against
+    # parser_classes the first time request.data is actually accessed --
+    # this view has no other reason to touch it, so without this line the
+    # @parser_classes([JSONParser]) restriction above would silently never
+    # trigger and a form-encoded body would sail through.
+    _ = request.data
+    token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+
+    if token:
+        try:
+            RefreshToken(token).blacklist()
+        except TokenError:
+            pass
+
+    response = Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
+    clear_refresh_cookie(response)
+    return response
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@parser_classes([JSONParser])
+def token_refresh(request):
+    """Cookie-based replacement for rest_framework_simplejwt's stock
+    TokenRefreshView (which reads `refresh` from the request body -- the
+    refresh token never reaches the request body or JS at all now, only
+    this HttpOnly cookie). Reuses SimpleJWT's own TokenRefreshSerializer
+    for the actual rotate/blacklist logic rather than reimplementing it,
+    and mirrors TokenRefreshView.post()'s exact TokenError -> InvalidToken
+    handling so behavior (401 on an expired/blacklisted/malformed token)
+    stays identical. A *missing* token is a 400, not a 401, also
+    matching the original: the stock view's serializer treats a missing
+    `refresh` field as a plain required-field validation error, and this
+    endpoint has to stay reachable with zero credentials by design (it's
+    how a session gets its first refresh after a hard page reload with no
+    access token in memory yet) -- see PUBLIC_ENDPOINTS in
+    config/test_authentication_filters.py, which locks in that no public
+    endpoint ever answers 401."""
+    # See the matching comment in logout() -- forces DRF's parser
+    # negotiation (and therefore the @parser_classes([JSONParser])
+    # Content-Type check) to actually run.
+    _ = request.data
+    token = request.COOKIES.get(REFRESH_COOKIE_NAME)
     if not token:
         return Response({"detail": "Refresh token required."}, status=status.HTTP_400_BAD_REQUEST)
 
+    serializer = TokenRefreshSerializer(data={"refresh": token})
     try:
-        RefreshToken(token).blacklist()
-    except TokenError:
-        return Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
-    except Exception:
-        return Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
+        serializer.is_valid(raise_exception=True)
+    except TokenError as exc:
+        raise InvalidToken(exc.args[0]) from exc
 
-    return Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
+    response = Response({"access": serializer.validated_data["access"]})
+    # ROTATE_REFRESH_TOKENS is on, so the serializer always returns a new
+    # "refresh" value here -- the `token` fallback only matters if that
+    # setting is ever turned off.
+    set_refresh_cookie(response, serializer.validated_data.get("refresh", token))
+    return response
 
 
 GENERIC_RESET_MESSAGE = "If an account exists for that email, a password reset link has been sent."
@@ -414,15 +486,18 @@ def confirm_password_reset(request):
     user.set_password(new_password)
     user.save(update_fields=["password"])
 
-    # Log the user straight into their account after a successful reset.
-    refresh = RefreshToken.for_user(user)
+    # Same reasoning as change_password: whoever could reach this token was
+    # sent a reset email, but the account may have been compromised (that's
+    # plausibly *why* a reset was requested) -- revoke every session issued
+    # before this reset, then log the user into a clean one below.
+    revoke_all_outstanding_tokens(user)
 
-    return Response(
+    response = Response(
         {
             "detail": "Password has been reset successfully.",
             "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
         },
         status=status.HTTP_200_OK,
     )
+    response.data["access"] = issue_tokens(response, user)
+    return response

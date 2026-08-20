@@ -442,3 +442,24 @@ def test_trigger_evaluation_endpoint_runs_and_persists(staff_client, settings):
     assert response.status_code == status.HTTP_200_OK
     assert response.data["total_cases"] == 22
     assert EvaluationRun.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_trigger_evaluation_endpoint_is_rate_limited(staff_client, staff_user):
+    """Each run executes ~22 scenarios of real, billed LLM calls and takes
+    tens of seconds -- see evaluation/throttling.py::EvaluationRunRateThrottle.
+    run_full_evaluation itself is mocked out here (returning an
+    already-built, cheap EvaluationRun) purely so this test isn't slow --
+    the actual evaluation pipeline is exercised separately by
+    test_trigger_evaluation_endpoint_runs_and_persists above; this test is
+    only about the throttle actually being wired to the view."""
+    fake_run = EvaluationRun.objects.create(status="completed", triggered_by=staff_user, total_cases=0)
+
+    with patch("evaluation.views.run_full_evaluation", return_value=fake_run):
+        for _ in range(5):
+            response = staff_client.post("/api/evaluation/run/")
+            assert response.status_code == status.HTTP_200_OK
+
+        throttled = staff_client.post("/api/evaluation/run/")
+
+    assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS

@@ -66,6 +66,46 @@ jobs:
         working-directory: backend
         run: python -m pytest
 
+      - name: Dependency vulnerability scan (pip-audit)
+        working-directory: backend
+        # Every ignored ID below was individually triaged (not bulk-suppressed) --
+        # see the comment above each group for why it isn't fixed yet. Removing an
+        # entry here is exactly how you re-enable enforcement once its package is
+        # upgraded; don't add a new ID without the same triage.
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt \
+            --ignore-vuln PYSEC-2026-3717 --ignore-vuln GHSA-923m-gv2p-w5qp \
+            --ignore-vuln GHSA-h7pc-vwp9-298g --ignore-vuln GHSA-8cjm-8mp7-r2xf \
+            --ignore-vuln GHSA-3h9f-r86x-qvjx --ignore-vuln GHSA-crhf-3pfg-w68w \
+            --ignore-vuln GHSA-8qcx-xf44-272x \
+            --ignore-vuln PYSEC-2026-1845 \
+            --ignore-vuln PYSEC-2026-165 --ignore-vuln PYSEC-2026-2250 \
+            --ignore-vuln PYSEC-2026-2253 --ignore-vuln PYSEC-2026-2251 \
+            --ignore-vuln PYSEC-2026-2255 --ignore-vuln PYSEC-2026-2257 \
+            --ignore-vuln PYSEC-2026-2256 --ignore-vuln PYSEC-2026-2254 \
+            --ignore-vuln PYSEC-2026-2252 --ignore-vuln PYSEC-2026-2249 \
+            --ignore-vuln PYSEC-2026-2874 --ignore-vuln PYSEC-2026-3453 \
+            --ignore-vuln PYSEC-2026-3451 --ignore-vuln PYSEC-2026-3454 \
+            --ignore-vuln PYSEC-2026-3495 --ignore-vuln PYSEC-2026-3496 \
+            --ignore-vuln PYSEC-2026-3494 --ignore-vuln PYSEC-2026-3493 \
+            --ignore-vuln PYSEC-2026-3698 --ignore-vuln PYSEC-2026-3697 \
+            --ignore-vuln PYSEC-2026-3699 --ignore-vuln PYSEC-2026-3696 \
+            --ignore-vuln PYSEC-2026-2270 \
+            --ignore-vuln PYSEC-2026-2132 --ignore-vuln PYSEC-2026-2275 \
+            --ignore-vuln PYSEC-2026-142 --ignore-vuln PYSEC-2026-141
+          # Ignored groups, by reason:
+          #   Django 4.2.30 (7 IDs) / pytest 7.4.4 (1 ID) / Pillow 11.3.0 (10 IDs) --
+          #     real fixes exist, but only in a new major version (Django 5.2/6.0,
+          #     pytest 9.x, Pillow 12.x). Each needs its own dedicated upgrade +
+          #     full regression pass, not a silent bump inside an unrelated change.
+          #   sqlparse 0.5.5 (4 IDs) / python-dotenv 1.2.1, already latest (1 ID) /
+          #     click 8.1.8 (1 ID) / requests 2.32.5 (1 ID) / urllib3 2.6.3 (2 IDs) --
+          #     the advisory's listed fix version isn't actually published to PyPI
+          #     yet (confirmed by trying to install it) -- nothing to upgrade to
+          #     today. Re-run pip-audit without this ignore list periodically to
+          #     check whether upstream has shipped a real fix.
+
   frontend-checks:
     runs-on: ubuntu-latest
     steps:
@@ -92,3 +132,12 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+      - name: Dependency vulnerability scan (npm audit)
+        working-directory: frontend
+        # high/critical only -- the two remaining moderate findings
+        # (react-router-dom, pinned to the 6.x line) need a deliberate
+        # major-version migration across the whole app's routing, not a
+        # silent bump here. Re-run `npm audit` without --audit-level
+        # periodically to see the full picture, including those.
+        run: npm audit --audit-level=high

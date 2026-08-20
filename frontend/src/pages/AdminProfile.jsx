@@ -20,7 +20,7 @@ function initialsFor(user) {
 }
 
 export default function AdminProfile() {
-  const { user, syncProfile } = useAuth();
+  const { user, syncProfile, logout } = useAuth();
   const fileInputRef = useRef(null);
 
   const [firstName, setFirstName] = useState(user?.first_name || '');
@@ -83,13 +83,13 @@ export default function AdminProfile() {
     setChangingPassword(true);
     try {
       await changePasswordRequest({ currentPassword, newPassword });
-      toast.success('Password changed successfully');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      // Changing your password ends every session, including this tab's
+      // (see backend/users/views.py::change_password) -- sign back in
+      // with the new password rather than continuing on a dead one.
+      toast.success('Password changed. Please sign in again.');
+      await logout();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to change password'));
-    } finally {
       setChangingPassword(false);
     }
   };

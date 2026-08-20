@@ -58,8 +58,15 @@ export default function AdminTasks() {
     if (categoryFilter !== 'all') params.category_name = categoryFilter;
     if (overdueOnly) params.overdue = 'true';
 
+    // Paginated on the backend now (see adminpanel/pagination.py) -- capped
+    // at 500 results per request as a resource-exhaustion ceiling. This
+    // page has no "load more"/page-navigation UI of its own yet, so a
+    // filter matching more than 500 tasks silently shows only the first
+    // 500 for now (narrowing the search/status/category filters above
+    // gets the rest) -- a real paginated UI here is a follow-up, not
+    // something this change added.
     const { data } = await adminApi.tasks(params);
-    setTasks(data);
+    setTasks(data.results);
   }, [search, statusFilter, categoryFilter, overdueOnly]);
 
   useEffect(() => {

@@ -2,16 +2,38 @@ import axios from "axios";
 
 export const API_ROOT = import.meta.env.VITE_API_ROOT || "/api";
 
-const ACCESS_TOKEN_KEY = "smart-task-access-token";
-const REFRESH_TOKEN_KEY = "smart-task-refresh-token";
-const USER_KEY = "smart-task-user";
+// The access token lives ONLY here -- a module-level variable, never
+// localStorage/sessionStorage. It disappears on tab close and on every
+// hard reload, by design: an XSS payload running on this page could still
+// read it out of memory while the tab is open (nothing in a browser can
+// fully prevent that), but it can no longer be exfiltrated as a durable,
+// replayable credential the way a localStorage value can. The refresh
+// token never reaches JS at all -- see the withCredentials/cookie setup
+// below and backend/users/token_cookies.py. See SECURITY.md's "Token
+// storage" section for the full threat model.
+let accessToken = null;
 
+export function getAccessToken() {
+	return accessToken;
+}
+
+export function setAccessToken(token) {
+	accessToken = token || null;
+}
+
+// `withCredentials: true` is required on every client so the browser
+// attaches (and stores) the HttpOnly refresh-token cookie the backend
+// sets on login/signup/etc. and reads back on /token/refresh/ and
+// /logout/ -- see backend's CORS_ALLOW_CREDENTIALS setting, which only
+// permits this for the explicit origin allowlist, never a wildcard.
 const authClient = axios.create({
 	baseURL: API_ROOT,
+	withCredentials: true,
 });
 
 const apiClient = axios.create({
 	baseURL: API_ROOT,
+	withCredentials: true,
 });
 
 export function getErrorMessage(err, fallback) {
@@ -61,54 +83,30 @@ export function getFieldErrors(err) {
 	return fieldErrors;
 }
 
-function readJSON(key) {
-	const value = localStorage.getItem(key);
-
-	if (!value) {
-		return null;
-	}
-
+// Calls /token/refresh/ with no arguments -- the refresh token travels
+// entirely in the HttpOnly cookie the browser attaches automatically
+// (withCredentials above), never touched or read by this code. Used both
+// to silently re-establish a session on app load (the access token in
+// memory is gone after any hard reload) and by the 401 retry logic below.
+// Returns the new access token, or null if there's no valid session to
+// resume (no cookie, or an expired/blacklisted one).
+async function refreshAccessToken() {
 	try {
-		return JSON.parse(value);
+		const { data } = await authClient.post("/token/refresh/");
+		setAccessToken(data.access);
+		return data.access;
 	} catch {
+		setAccessToken(null);
 		return null;
 	}
 }
 
-export function readAuthSession() {
-	return {
-		accessToken: localStorage.getItem(ACCESS_TOKEN_KEY),
-		refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
-		user: readJSON(USER_KEY),
-	};
-}
-
-export function setAuthSession({ access = undefined, refresh = undefined, user = undefined }) {
-	if (access) {
-		localStorage.setItem(ACCESS_TOKEN_KEY, access);
-	}
-
-	if (refresh) {
-		localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
-	}
-
-	if (user) {
-		localStorage.setItem(USER_KEY, JSON.stringify(user));
-	}
-}
-
-export function clearAuthSession() {
-	localStorage.removeItem(ACCESS_TOKEN_KEY);
-	localStorage.removeItem(REFRESH_TOKEN_KEY);
-	localStorage.removeItem(USER_KEY);
-}
-
-function getAccessToken() {
-	return localStorage.getItem(ACCESS_TOKEN_KEY);
-}
-
-function getRefreshToken() {
-	return localStorage.getItem(REFRESH_TOKEN_KEY);
+// Called once on app startup (see AuthContext) to resume a session from
+// the refresh cookie, if any -- replaces the old synchronous
+// "read tokens out of localStorage" bootstrap with a network round trip,
+// since there's nothing left in persistent client storage to read.
+export async function bootstrapSession() {
+	return refreshAccessToken();
 }
 
 apiClient.interceptors.request.use((config) => {
@@ -132,39 +130,34 @@ apiClient.interceptors.response.use(
 			return Promise.reject(error);
 		}
 
-		const refreshToken = getRefreshToken();
+		originalRequest._retry = true;
 
-		if (!refreshToken) {
-			clearAuthSession();
+		if (!refreshPromise) {
+			refreshPromise = refreshAccessToken().finally(() => {
+				refreshPromise = null;
+			});
+		}
+
+		const newAccessToken = await refreshPromise;
+
+		if (!newAccessToken) {
 			return Promise.reject(error);
 		}
 
-		originalRequest._retry = true;
-
-		try {
-			if (!refreshPromise) {
-				refreshPromise = authClient
-					.post("/token/refresh/", { refresh: refreshToken })
-					.then((response) => response.data.access)
-					.finally(() => {
-						refreshPromise = null;
-					});
-			}
-
-			const newAccessToken = await refreshPromise;
-			localStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken);
-			originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-
-			return apiClient(originalRequest);
-		} catch (refreshError) {
-			clearAuthSession();
-			return Promise.reject(refreshError);
-		}
+		originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+		return apiClient(originalRequest);
 	}
 );
 
+// The four endpoints below are the only ones that ever hand back a fresh
+// access token (signup itself doesn't -- it requires OTP verification
+// first). Each stores it in memory here, right where the response is
+// received, rather than leaving every caller responsible for remembering
+// to -- the refresh token needs no equivalent handling since it arrives
+// as a Set-Cookie header the browser stores on its own.
 export async function signInRequest(payload) {
 	const { data } = await authClient.post("/login/", payload);
+	setAccessToken(data.access);
 	return data;
 }
 
@@ -175,11 +168,13 @@ export async function signUpRequest(payload) {
 
 export async function googleLoginRequest(credential) {
 	const { data } = await authClient.post("/google-login/", { credential });
+	setAccessToken(data.access);
 	return data;
 }
 
 export async function verifyEmailOtpRequest({ email, otp }) {
 	const { data } = await authClient.post("/verify-email/", { email, otp });
+	setAccessToken(data.access);
 	return data;
 }
 
@@ -210,12 +205,24 @@ export async function changePasswordRequest({ currentPassword, newPassword }) {
 		current_password: currentPassword,
 		new_password: newPassword,
 	});
+	// The backend revokes every outstanding refresh token (including this
+	// device's) and clears the refresh cookie the moment a password
+	// change succeeds -- see backend/users/views.py::change_password --
+	// so this device's session is over too, not just other devices'. The
+	// caller is expected to treat this the same as a forced logout.
+	setAccessToken(null);
 	return data;
 }
 
-export async function logoutRequest(refreshToken) {
-	const { data } = await apiClient.post("/logout/", { refresh: refreshToken });
-	return data;
+export async function logoutRequest() {
+	try {
+		const { data } = await apiClient.post("/logout/");
+		return data;
+	} finally {
+		// Regardless of whether the network call itself succeeded -- this
+		// client's copy of the session ends either way.
+		setAccessToken(null);
+	}
 }
 
 export async function requestPasswordResetEmail(email) {
@@ -229,6 +236,7 @@ export async function confirmPasswordReset({ uid, token, newPassword }) {
 		token,
 		new_password: newPassword,
 	});
+	setAccessToken(data.access);
 	return data;
 }
 

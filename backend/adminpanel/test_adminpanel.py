@@ -66,7 +66,7 @@ def test_admin_user_list_includes_task_counts(staff_client, test_user, other_use
     response = staff_client.get("/api/admin/users/")
 
     assert response.status_code == status.HTTP_200_OK
-    by_email = {row["email"]: row for row in response.data}
+    by_email = {row["email"]: row for row in response.data["results"]}
     assert by_email[test_user.email]["task_count"] == 2
     assert by_email[other_user.email]["task_count"] == 0
 
@@ -76,7 +76,7 @@ def test_admin_user_list_search(staff_client, test_user, other_user):
     response = staff_client.get(f"/api/admin/users/?search={test_user.email}")
 
     assert response.status_code == status.HTTP_200_OK
-    emails = [row["email"] for row in response.data]
+    emails = [row["email"] for row in response.data["results"]]
     assert test_user.email in emails
     assert other_user.email not in emails
 
@@ -89,7 +89,7 @@ def test_admin_user_tasks_scoped_to_that_user(staff_client, test_user, other_use
     response = staff_client.get(f"/api/admin/users/{test_user.id}/tasks/")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = [t["title"] for t in response.data]
+    titles = [t["title"] for t in response.data["results"]]
     assert titles == ["Mine"]
 
 
@@ -263,7 +263,7 @@ def test_admin_task_list_includes_every_users_tasks(staff_client, test_user, oth
     response = staff_client.get("/api/admin/tasks/")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = {t["title"] for t in response.data}
+    titles = {t["title"] for t in response.data["results"]}
     assert {"Mine", "Not mine"} <= titles
 
 
@@ -275,7 +275,7 @@ def test_admin_task_list_search(staff_client, test_user, task_factory):
     response = staff_client.get("/api/admin/tasks/?search=quarterly")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = [t["title"] for t in response.data]
+    titles = [t["title"] for t in response.data["results"]]
     assert titles == ["Quarterly report"]
 
 
@@ -287,8 +287,8 @@ def test_admin_task_list_filter_by_status(staff_client, test_user, task_factory)
     response = staff_client.get("/api/admin/tasks/?status=Completed")
 
     assert response.status_code == status.HTTP_200_OK
-    assert all(t["status"] == "Completed" for t in response.data)
-    assert len(response.data) == 1
+    assert all(t["status"] == "Completed" for t in response.data["results"])
+    assert len(response.data["results"]) == 1
 
 
 @pytest.mark.django_db
@@ -301,7 +301,7 @@ def test_admin_task_list_filter_by_category(staff_client, test_user, category_fa
     response = staff_client.get(f"/api/admin/tasks/?category={cat_a.id}")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = [t["title"] for t in response.data]
+    titles = [t["title"] for t in response.data["results"]]
     assert titles == ["Work task"]
 
 
@@ -315,7 +315,7 @@ def test_admin_task_list_overdue_filter(staff_client, test_user, task_factory):
     response = staff_client.get("/api/admin/tasks/?overdue=true")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = [t["title"] for t in response.data]
+    titles = [t["title"] for t in response.data["results"]]
     assert titles == ["Overdue"]
 
 
@@ -332,7 +332,7 @@ def test_admin_task_list_filter_by_category_name_across_users(staff_client, test
     response = staff_client.get("/api/admin/tasks/?category_name=work")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = {t["title"] for t in response.data}
+    titles = {t["title"] for t in response.data["results"]}
     assert titles == {"My work task", "Their work task"}
 
 
@@ -356,7 +356,7 @@ def test_admin_task_list_filter_by_user(staff_client, test_user, other_user, tas
     response = staff_client.get(f"/api/admin/tasks/?user={test_user.id}")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = [t["title"] for t in response.data]
+    titles = [t["title"] for t in response.data["results"]]
     assert titles == ["Mine"]
 
 
