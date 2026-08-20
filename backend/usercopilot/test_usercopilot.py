@@ -233,6 +233,50 @@ def test_update_task_changes_time(test_user, task_factory):
     assert task.start_time == new_start
 
 @pytest.mark.django_db
+def test_update_task_time_change_regenerates_reminders(test_user, task_factory):
+    from notifications.models import Reminder
+
+    task = task_factory(
+        title="Meeting", user=test_user,
+        start_time=timezone.now() + timezone.timedelta(hours=2),
+        end_time=timezone.now() + timezone.timedelta(hours=3),
+        reminder_30_sent=True,
+    )
+    old_version = task.reminder_version
+    new_start = timezone.now() + timezone.timedelta(days=1)
+    new_end = new_start + timezone.timedelta(hours=1)
+    tool = UpdateTaskTool(user=test_user)
+
+    result = tool.run(task_id=task.id, new_start_time=_iso(new_start), new_end_time=_iso(new_end))
+
+    assert result.success is True
+    assert result.data["status_note"] == "updated, reminders rescheduled"
+    task.refresh_from_db()
+    assert task.reminder_version == old_version + 1
+    assert task.reminder_30_sent is False
+    assert Reminder.objects.filter(
+        task=task, generation=task.reminder_version, status=Reminder.Status.PENDING,
+    ).count() == 4
+
+
+@pytest.mark.django_db
+def test_update_task_without_time_change_does_not_touch_reminders(test_user, task_factory):
+    task = task_factory(
+        title="Meeting", user=test_user,
+        start_time=timezone.now() + timezone.timedelta(hours=2),
+        end_time=timezone.now() + timezone.timedelta(hours=3),
+    )
+    old_version = task.reminder_version
+    tool = UpdateTaskTool(user=test_user)
+
+    result = tool.run(task_id=task.id, new_title="Renamed meeting")
+
+    assert result.success is True
+    assert result.data["status_note"] == "updated"
+    task.refresh_from_db()
+    assert task.reminder_version == old_version
+
+@pytest.mark.django_db
 def test_update_task_with_nothing_to_change_asks_what(test_user, task_factory):
     task = task_factory(title="Meeting", user=test_user)
     tool = UpdateTaskTool(user=test_user)
@@ -311,6 +355,26 @@ def test_complete_task_marks_completed_from_pending(test_user, task_factory):
     task.refresh_from_db()
     assert task.status == "Completed"
     assert task.completed_at is not None
+
+@pytest.mark.django_db
+def test_complete_task_cancels_pending_reminders(test_user, task_factory):
+    from notifications.models import Reminder
+    from notifications.reminder_processor import generate_reminders_for_task
+
+    task = task_factory(
+        title="Homework", user=test_user, status="Pending",
+        start_time=timezone.now() + timezone.timedelta(hours=2),
+        end_time=timezone.now() + timezone.timedelta(hours=3),
+    )
+    generate_reminders_for_task(task)
+    assert Reminder.objects.filter(task=task, status=Reminder.Status.PENDING).count() == 4
+    tool = CompleteTaskTool(user=test_user)
+
+    result = tool.run(task_id=task.id)
+
+    assert result.success is True
+    assert not Reminder.objects.filter(task=task, status=Reminder.Status.PENDING).exists()
+    assert Reminder.objects.filter(task=task, status=Reminder.Status.CANCELLED).count() == 4
 
 @pytest.mark.django_db
 def test_complete_task_already_completed_is_a_friendly_noop(test_user, task_factory):

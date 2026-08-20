@@ -485,3 +485,79 @@ def test_reschedule_task_resets_overdue_reminder_flag(auth_client, task_factory)
     assert task.reminder_progress_sent is False
     assert task.reminder_overdue_sent is False
     assert task.last_daily_reminder_date is None
+
+
+# ---------------------------------------------------------------------------
+# Reminder regeneration on a plain PATCH (TaskDetailView.perform_update) --
+# this endpoint previously had no reminder-invalidation handling at all,
+# unlike the dedicated /reschedule/ action above.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_patch_changing_start_time_regenerates_reminders(auth_client, task_factory):
+    from notifications.models import Reminder
+
+    task = task_factory(
+        status="Pending",
+        start_time=timezone.now() + timedelta(hours=2),
+        end_time=timezone.now() + timedelta(hours=3),
+        reminder_30_sent=True,
+    )
+    old_version = task.reminder_version
+    new_start = timezone.now() + timedelta(days=1)
+    new_end = new_start + timedelta(hours=1)
+
+    response = auth_client.patch(
+        f"/api/tasks/{task.id}/",
+        {"start_time": new_start.isoformat(), "end_time": new_end.isoformat()},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    task.refresh_from_db()
+    assert task.reminder_version == old_version + 1
+    assert task.reminder_30_sent is False
+    # Status/timestamps are untouched -- only the dedicated reschedule
+    # action restarts the task's lifecycle, a plain edit shouldn't.
+    assert task.status == "Pending"
+
+    live = Reminder.objects.filter(task=task, generation=task.reminder_version, status=Reminder.Status.PENDING)
+    assert live.filter(kind=Reminder.Kind.THIRTY_MIN).exists()
+    assert live.filter(kind=Reminder.Kind.FIVE_MIN).exists()
+
+
+@pytest.mark.django_db
+def test_patch_not_changing_times_does_not_bump_reminder_version(auth_client, task_factory):
+    task = task_factory(
+        status="Pending",
+        start_time=timezone.now() + timedelta(hours=2),
+        end_time=timezone.now() + timedelta(hours=3),
+    )
+    old_version = task.reminder_version
+
+    response = auth_client.patch(f"/api/tasks/{task.id}/", {"description": "updated"}, format="json")
+
+    assert response.status_code == status.HTTP_200_OK
+    task.refresh_from_db()
+    assert task.reminder_version == old_version
+    assert task.description == "updated"
+
+
+@pytest.mark.django_db
+def test_stop_task_cancels_pending_reminders(auth_client, task_factory):
+    from notifications.models import Reminder
+    from notifications.reminder_processor import generate_reminders_for_task
+
+    task = task_factory(
+        status="In Progress",
+        start_time=timezone.now() + timedelta(hours=2),
+        end_time=timezone.now() + timedelta(hours=3),
+    )
+    generate_reminders_for_task(task)
+    assert Reminder.objects.filter(task=task, status=Reminder.Status.PENDING).exists()
+
+    response = auth_client.post(f"/api/tasks/{task.id}/stop/")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert not Reminder.objects.filter(task=task, status=Reminder.Status.PENDING).exists()
+    assert Reminder.objects.filter(task=task, status=Reminder.Status.CANCELLED).count() == 4

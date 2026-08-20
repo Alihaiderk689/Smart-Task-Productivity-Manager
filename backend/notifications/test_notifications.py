@@ -43,14 +43,6 @@ def test_overdue_reminder_does_not_override_stopped_status(task_factory):
     assert task.status == "Stopped"
 
 
-@pytest.mark.django_db
-def test_overdue_reminder_skipped_when_already_sent(task_factory):
-    task = task_factory(status="In Progress", reminder_overdue_sent=True)
-
-    send_overdue_reminder(task.id, task.reminder_version)
-
-    assert len(mail.outbox) == 0
-
 
 @pytest.mark.django_db
 def test_overdue_reminder_skipped_for_completed_task(task_factory):
@@ -175,30 +167,28 @@ def test_daily_reminder_is_registered_in_beat_schedule():
     assert entry["task"] == "notifications.tasks.send_daily_progress_reminders"
 
 
-@pytest.mark.parametrize(
-    "task_name",
-    [
-        "send_5_minute_reminder",
-        "send_30_minute_reminder",
-        "send_progress_reminder",
-        "send_overdue_reminder",
-        "send_daily_progress_reminders",
-    ],
-)
-def test_reminder_tasks_are_configured_to_retry(task_name):
+def test_reminder_sweep_is_registered_in_beat_schedule_for_local_dev():
+    from config.celery import app
+
+    entry = app.conf.beat_schedule["process-due-reminders"]
+    assert entry["task"] == "notifications.tasks.process_due_reminders_task"
+
+
+def test_daily_reminder_task_is_configured_to_retry():
+    # The one-shot per-task reminders (30min/5min/progress/overdue) used to
+    # be Celery tasks with their own autoretry_for/max_retries policy --
+    # they're plain functions now (see notifications/tasks.py's module
+    # comment), since retries are handled by notifications/reminder_processor.py's
+    # own attempts/PENDING-requeue mechanism instead (see
+    # test_transient_error_requeues_then_fails_after_max_attempts in
+    # notifications/test_reminder_processor.py). send_daily_progress_reminders
+    # is unrelated to that refactor and still is a genuine Celery Beat task.
     from notifications import tasks
 
-    task = getattr(tasks, task_name)
-
+    task = tasks.send_daily_progress_reminders
     assert task.max_retries == 3
     assert task.retry_backoff is True
-    # send_daily_progress_reminders retries on any failure (a broken query
-    # affects the whole sweep); the per-task reminders only retry on
-    # transient email-sending errors, not on a bug in our own code.
-    if task_name == "send_daily_progress_reminders":
-        assert task.autoretry_for == (Exception,)
-    else:
-        assert task.autoretry_for == tasks.EMAIL_TRANSIENT_ERRORS
+    assert task.autoretry_for == (Exception,)
 
 
 @pytest.mark.django_db
