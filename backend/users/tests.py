@@ -3,6 +3,8 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .token_cookies import REFRESH_COOKIE_NAME
+
 
 class SignupViewTests(TestCase):
     def setUp(self):
@@ -37,10 +39,13 @@ class LogoutViewTests(TestCase):
         self.client.force_authenticate(user=self.user)      #authenticate the user for the test client.
         refresh = RefreshToken.for_user(self.user)          #generate refresh token.
         refresh.blacklist()                                 #now the token is invalid.
+        # logout() only ever reads the refresh token from the HttpOnly
+        # cookie now, never the request body -- see users/token_cookies.py.
+        self.client.cookies[REFRESH_COOKIE_NAME] = str(refresh)
 
         response = self.client.post(
             "/api/logout/",
-            {"refresh": str(refresh)},
+            {},
             format="json",
         )
 

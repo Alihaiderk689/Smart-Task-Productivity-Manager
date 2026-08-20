@@ -1,7 +1,7 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.response import Response
 
@@ -18,6 +18,7 @@ from .serializers import (
     ConversationMessageSerializer,
     RecommendationSerializer,
 )
+from .throttling import ChatRateThrottle
 from .services.chat_service import ChatNotConfiguredError, ChatService
 
 
@@ -149,6 +150,7 @@ def reject_recommendation(request, pk):
 
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
+@throttle_classes([ChatRateThrottle])
 def chat_send(request):
     """Send a free-form message to the copilot chat -- see
     services/chat_service.py for the LLM tool-calling orchestration.

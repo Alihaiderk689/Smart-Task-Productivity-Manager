@@ -1,4 +1,4 @@
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -6,10 +6,12 @@ from rest_framework.response import Response
 from .models import EvaluationRun
 from .runner import run_full_evaluation
 from .serializers import EvaluationRunDetailSerializer, EvaluationRunListSerializer
+from .throttling import EvaluationRunRateThrottle
 
 
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
+@throttle_classes([EvaluationRunRateThrottle])
 def trigger_evaluation(request):
     """Runs the full evaluation suite synchronously (real Groq calls +
     real DB, ~20 scenarios) and returns the finished run with its metrics.

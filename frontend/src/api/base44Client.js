@@ -1,10 +1,7 @@
 import {
-	clearAuthSession,
 	categoriesApi,
 	logoutRequest,
 	profileRequest,
-	readAuthSession,
-	setAuthSession,
 	signInRequest,
 	signUpRequest,
 	tasksApi,
@@ -14,23 +11,13 @@ function unwrap(response) {
 	return response?.data ?? response;
 }
 
-function persistAuthSession(response) {
-	setAuthSession({
-		access: response.access,
-		refresh: response.refresh,
-		user: response.user,
-	});
-
-	return response;
-}
-
 export const base44 = {
 	auth: {
 		async loginViaEmailPassword(email, password) {
-			return persistAuthSession(await signInRequest({ email, password }));
+			return signInRequest({ email, password });
 		},
 		async register(payload) {
-			return persistAuthSession(await signUpRequest(payload));
+			return signUpRequest(payload);
 		},
 		async verifyOtp() {
 			throw new Error("Email verification is not handled by this backend.");
@@ -50,23 +37,10 @@ export const base44 = {
 		async me() {
 			return profileRequest();
 		},
-		setToken(token) {
-			const session = readAuthSession();
-			setAuthSession({
-				access: token,
-				refresh: session.refreshToken,
-				user: session.user,
-			});
-		},
 		async logout(redirectTo = "/login") {
-			const session = readAuthSession();
-
 			try {
-				if (session.refreshToken) {
-					await logoutRequest(session.refreshToken);
-				}
+				await logoutRequest();
 			} finally {
-				clearAuthSession();
 				if (redirectTo) {
 					window.location.href = redirectTo;
 				}
