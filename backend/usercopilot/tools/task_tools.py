@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from django.db.models import Count, Q
 from django.utils import timezone
 
+from notifications.reminder_processor import cancel_pending_reminders
 from notifications.services import NotificationService
 from tasks.models import Task
 from tasks.serializers import TaskSerializer
@@ -231,7 +232,35 @@ class UpdateTaskTool(BaseTool):
             return ToolResult(success=False, error=_first_error(serializer.errors))
         task = serializer.save()
 
-        return ToolResult(success=True, data={**_serialize_brief(task), "status_note": "updated"})
+        if "start_time" in payload or "end_time" in payload:
+            # Changing the schedule invalidates reminders scheduled against
+            # the old time -- mirrors TaskDetailView.perform_update's
+            # identical handling for a plain REST edit (see tasks/views.py;
+            # this tool goes through TaskSerializer directly rather than
+            # that view, so needs the same handling duplicated here).
+            # Doesn't touch status/started_at/completed_at -- only
+            # reschedule_task's dedicated endpoint restarts the task's
+            # lifecycle; a field edit shouldn't.
+            task.reminder_30_sent = False
+            task.reminder_5_sent = False
+            task.reminder_progress_sent = False
+            task.reminder_overdue_sent = False
+            task.last_daily_reminder_date = None
+            task.reminder_version += 1
+            task.save(update_fields=[
+                "reminder_30_sent", "reminder_5_sent", "reminder_progress_sent",
+                "reminder_overdue_sent", "last_daily_reminder_date", "reminder_version",
+            ])
+            try:
+                NotificationService.schedule_reminders(task)
+                status_note = "updated, reminders rescheduled"
+            except Exception:
+                logger.exception("Failed to reschedule reminders for task %s -- update was still applied", task.id)
+                status_note = "updated, but reminders could not be rescheduled"
+        else:
+            status_note = "updated"
+
+        return ToolResult(success=True, data={**_serialize_brief(task), "status_note": status_note})
 
 
 class DeleteTaskTool(BaseTool):
@@ -295,6 +324,7 @@ class CompleteTaskTool(BaseTool):
         task.completed_at = now
         task.status = "Completed"
         task.save(update_fields=["status", "started_at", "completed_at"])
+        cancel_pending_reminders(task)
         return ToolResult(success=True, data={**_serialize_brief(task), "status_note": "marked complete"})
 
 

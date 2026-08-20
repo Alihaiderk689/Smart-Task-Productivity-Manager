@@ -49,7 +49,25 @@ def test_correct_key_runs_named_group(api_client, monkeypatch):
     assert calls == ["noop"]
 
 
-@pytest.mark.parametrize("group_name", ["frequent", "daily"])
+def test_reminders_group_calls_process_due_reminders(api_client, monkeypatch):
+    # Reminders is its own job group (see .github/workflows/scheduled-tasks.yml's
+    # dedicated */5 cron) precisely so it's never blocked behind the
+    # heavier, LLM-backed frequent/daily jobs -- this just confirms the
+    # endpoint-side wiring calls the real reminder sweep for that group.
+    calls = []
+    monkeypatch.setitem(views.JOB_GROUPS, "reminders", lambda: {"process_due_reminders": lambda: calls.append("ran")})
+
+    response = api_client.post(
+        reverse("run-scheduled-tasks") + "?group=reminders",
+        HTTP_X_INTERNAL_TASK_KEY="test-internal-key",
+    )
+
+    assert response.status_code == 200
+    assert response.data["success"] is True
+    assert calls == ["ran"]
+
+
+@pytest.mark.parametrize("group_name", ["frequent", "daily", "reminders"])
 def test_real_job_group_imports_cleanly_and_every_task_is_callable(group_name):
     # Guards against a future refactor accidentally breaking one of the
     # imports inside _frequent_jobs()/_daily_jobs() -- those are only

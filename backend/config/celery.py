@@ -22,6 +22,16 @@ app.conf.beat_schedule = {
         "task": "notifications.tasks.send_daily_progress_reminders",
         "schedule": crontab(hour=9, minute=0),
     },
+    # Database-backed reminder sweep (see notifications/reminder_processor.py)
+    # -- same function core/views.py's run-scheduled-tasks endpoint calls
+    # directly in production via the dedicated 5-minute 'reminders' job
+    # group (see .github/workflows/scheduled-tasks.yml); this Beat entry is
+    # just local dev's way of invoking the identical code on the same
+    # cadence, since local dev already runs a real worker/Beat.
+    "process-due-reminders": {
+        "task": "notifications.tasks.process_due_reminders_task",
+        "schedule": crontab(minute="*/5"),
+    },
     # Admin Copilot: proactive system health sweep -- every 15 minutes
     # rather than a fixed daily hour, since infra issues need catching
     # sooner than once a day. See copilot/tasks.py.

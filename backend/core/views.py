@@ -49,6 +49,18 @@ def _frequent_jobs():
     }
 
 
+def _reminder_jobs():
+    # Deliberately its own job group, on its own faster cadence (see
+    # .github/workflows/scheduled-tasks.yml), rather than folded into
+    # _frequent_jobs above -- the app's 5-minutes-before reminder can't be
+    # served reliably by a 15-minute sweep, and this job is pure DB
+    # queries + SMTP (no LLM calls like the jobs above), so it stays cheap
+    # and fast enough to run that often on its own.
+    from notifications.reminder_processor import process_due_reminders
+
+    return {"process_due_reminders": process_due_reminders}
+
+
 def _daily_jobs():
     from copilot.tasks import (
         run_analytics_check,
@@ -72,6 +84,7 @@ def _daily_jobs():
 JOB_GROUPS = {
     "frequent": _frequent_jobs,
     "daily": _daily_jobs,
+    "reminders": _reminder_jobs,
 }
 
 
