@@ -12,6 +12,7 @@ automatically instead of drifting out of sync with a hand-rolled copy.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from datetime import timedelta
 from types import SimpleNamespace
@@ -26,6 +27,8 @@ from tasks.serializers import TaskSerializer
 from ..services.category_resolver import create_category, list_category_names, resolve_category
 from ..services.date_resolver import format_friendly, resolve_datetime
 from .base import BaseTool, ToolResult
+
+logger = logging.getLogger(__name__)
 
 _STATUS_CHOICES = [c[0] for c in Task.STATUS_CHOICES]
 _PRIORITY_CHOICES = [c[0] for c in Task.PRIORITY_CHOICES]
@@ -143,9 +146,21 @@ class CreateTaskTool(BaseTool):
             return ToolResult(success=False, error=_first_error(serializer.errors))
 
         task = serializer.save(user=self.user)
-        NotificationService.schedule_reminders(task)
 
-        return ToolResult(success=True, data={**_serialize_brief(task), "status_note": "created, reminders scheduled"})
+        # Reminder scheduling is best-effort -- the task itself is already
+        # committed above, so a Celery/Redis hiccup here must not be
+        # reported as "task creation failed" (it isn't; the task exists).
+        # See ChatService._run_tool's bare except: an uncaught exception
+        # from this tool would otherwise surface as a generic "failed
+        # unexpectedly" error even though the task was created successfully.
+        try:
+            NotificationService.schedule_reminders(task)
+            status_note = "created, reminders scheduled"
+        except Exception:
+            logger.exception("Failed to schedule reminders for task %s -- task was still created", task.id)
+            status_note = "created, but reminders could not be scheduled"
+
+        return ToolResult(success=True, data={**_serialize_brief(task), "status_note": status_note})
 
 
 class UpdateTaskTool(BaseTool):

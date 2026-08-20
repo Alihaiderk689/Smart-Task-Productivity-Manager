@@ -187,6 +187,24 @@ def test_create_task_schedules_reminders(test_user, category_factory):
     assert result.success is True
     mock_schedule.assert_called_once()
 
+
+@pytest.mark.django_db
+def test_create_task_succeeds_even_if_reminder_scheduling_fails(test_user, category_factory):
+    category_factory(name="Work", user=test_user)
+    start = timezone.now() + timezone.timedelta(hours=1)
+    end = start + timezone.timedelta(minutes=30)
+    tool = CreateTaskTool(user=test_user)
+
+    with patch(
+        "usercopilot.tools.task_tools.NotificationService.schedule_reminders",
+        side_effect=ConnectionError("broker unreachable"),
+    ):
+        result = tool.run(title="Standup", category_name="Work", start_time=_iso(start), end_time=_iso(end))
+
+    assert result.success is True
+    assert result.data["status_note"] == "created, but reminders could not be scheduled"
+    assert Task.objects.filter(user=test_user, title="Standup").exists()
+
 # ---------------------------------------------------------------------------
 # UpdateTaskTool
 # ---------------------------------------------------------------------------
