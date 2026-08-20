@@ -2,12 +2,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import {
-  clearAuthSession,
+  bootstrapSession,
+  getAccessToken,
   googleLoginRequest,
   logoutRequest,
   profileRequest,
-  readAuthSession,
-  setAuthSession,
+  setAccessToken,
   signInRequest,
   signUpRequest,
 } from "../services/api";
@@ -15,25 +15,28 @@ import {
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const session = readAuthSession();
-  const [user, setUser] = useState(session.user);
-  const [accessToken, setAccessToken] = useState(session.accessToken);
-  const [refreshToken, setRefreshToken] = useState(session.refreshToken);
+  const [user, setUser] = useState(null);
+  const [accessToken, setAccessTokenState] = useState(getAccessToken());
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingPublicSettings] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
+  // There's nothing left in persistent client storage to read synchronously
+  // on load (see services/api.js) -- resuming a session now means asking
+  // the backend to trade the HttpOnly refresh cookie, if any, for a fresh
+  // access token, then fetching the profile with it. A user with no
+  // existing session just gets a quick "not authenticated" from this same
+  // round trip.
   const checkUserAuth = useCallback(async () => {
     setIsLoadingAuth(true);
     setAuthError(null);
 
-    const currentSession = readAuthSession();
+    const token = await bootstrapSession();
 
-    if (!currentSession.accessToken) {
+    if (!token) {
       setUser(null);
-      setAccessToken(null);
-      setRefreshToken(null);
+      setAccessTokenState(null);
       setIsLoadingAuth(false);
       setAuthChecked(true);
       return null;
@@ -42,15 +45,13 @@ export function AuthProvider({ children }) {
     try {
       const profile = await profileRequest();
       setUser(profile);
-      setAccessToken(currentSession.accessToken);
-      setRefreshToken(currentSession.refreshToken);
+      setAccessTokenState(token);
       setAuthChecked(true);
       return profile;
     } catch (error) {
-      clearAuthSession();
-      setUser(null);
       setAccessToken(null);
-      setRefreshToken(null);
+      setUser(null);
+      setAccessTokenState(null);
       setAuthError({
         type: error.response?.status === 401 || error.response?.status === 403 ? "auth_required" : "unknown",
         message: error.response?.data?.detail || error.message || "Authentication check failed",
@@ -69,27 +70,24 @@ export function AuthProvider({ children }) {
   const syncProfile = useCallback(async () => {
     const profile = await profileRequest();
     setUser(profile);
-    setAuthSession({ user: profile });
     return profile;
   }, []);
 
   const signIn = useCallback(async (credentials) => {
     const data = await signInRequest(credentials);
     setUser(data.user);
-    setAccessToken(data.access);
-    setRefreshToken(data.refresh);
-    setAuthSession(data);
+    setAccessTokenState(data.access);
     setAuthError(null);
     setAuthChecked(true);
     return data;
   }, []);
 
   const signUp = useCallback(async (credentials) => {
+    // signup doesn't log the account in -- it requires OTP verification
+    // first (see users/views.py::signup) -- so there's no access token to
+    // store here yet.
     const data = await signUpRequest(credentials);
     setUser(data.user);
-    setAccessToken(data.access);
-    setRefreshToken(data.refresh);
-    setAuthSession(data);
     setAuthError(null);
     setAuthChecked(true);
     return data;
@@ -97,41 +95,36 @@ export function AuthProvider({ children }) {
 
   // `credential` is the ID token handed back by Google's Sign In With Google
   // button (see GoogleLoginButton) -- the backend verifies it and returns the
-  // same { user, access, refresh } shape as signIn/signUp.
+  // same { user, access } shape as signIn (the refresh token never appears
+  // in this response body -- see services/api.js).
   const signInWithGoogle = useCallback(async (credential) => {
     const data = await googleLoginRequest(credential);
     setUser(data.user);
-    setAccessToken(data.access);
-    setRefreshToken(data.refresh);
-    setAuthSession(data);
+    setAccessTokenState(data.access);
     setAuthError(null);
     setAuthChecked(true);
     return data;
   }, []);
 
-  // Hydrates the session from an { user, access, refresh } payload returned
-  // by an endpoint other than /login/ or /signup/ (e.g. password reset).
+  // Hydrates the session from an { user, access } payload returned by an
+  // endpoint other than /login/ (e.g. email verification, password reset)
+  // -- the access token itself was already stored in memory by the api.js
+  // call that produced `data`; this just syncs React state to match.
   const applySession = useCallback((data) => {
     setUser(data.user);
-    setAccessToken(data.access);
-    setRefreshToken(data.refresh);
-    setAuthSession(data);
+    setAccessTokenState(data.access);
     setAuthError(null);
     setAuthChecked(true);
   }, []);
 
   const signOut = useCallback(async () => {
     try {
-      if (refreshToken) {
-        await logoutRequest(refreshToken);
-      }
+      await logoutRequest();
     } finally {
-      clearAuthSession();
       setUser(null);
-      setAccessToken(null);
-      setRefreshToken(null);
+      setAccessTokenState(null);
     }
-  }, [refreshToken]);
+  }, []);
 
   const logout = useCallback(async (shouldRedirect = true) => {
     await signOut();
@@ -150,7 +143,6 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       accessToken,
-      refreshToken,
       isAuthenticated: Boolean(accessToken),
       authReady: !isLoadingAuth,
       isLoadingAuth,
@@ -170,7 +162,6 @@ export function AuthProvider({ children }) {
     [
       user,
       accessToken,
-      refreshToken,
       isLoadingAuth,
       isLoadingPublicSettings,
       authError,

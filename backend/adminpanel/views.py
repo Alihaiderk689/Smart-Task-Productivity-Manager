@@ -21,6 +21,7 @@ from notifications.tasks import (
 )
 from tasks.models import Task
 
+from .pagination import AdminListPagination
 from .serializers import (
     AdminTaskSerializer,
     AdminTaskWriteSerializer,
@@ -87,6 +88,7 @@ class AdminUserListView(ListAPIView):
     ?search=<email or name> and ?ordering=<field> (see filter_backends)."""
     serializer_class = AdminUserSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = AdminListPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["email", "first_name"]
     ordering_fields = ["date_joined", "email", "task_count", "last_login"]
@@ -109,6 +111,7 @@ class AdminUserTasksListView(ListAPIView):
     """A single user's tasks -- staff only."""
     serializer_class = AdminTaskSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = AdminListPagination
 
     def get_queryset(self):
         get_object_or_404(User, pk=self.kwargs["user_id"])
@@ -170,6 +173,7 @@ class AdminTaskListView(ListAPIView):
     ?status=, ?category=<id>, ?user=<id>, ?overdue=true, and ?ordering=."""
     serializer_class = AdminTaskSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = AdminListPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["title", "description", "user__email"]
     ordering_fields = ["created_at", "start_time", "end_time", "title"]

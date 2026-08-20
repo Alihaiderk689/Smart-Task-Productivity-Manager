@@ -8,7 +8,21 @@ from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from .token_cookies import REFRESH_COOKIE_NAME
+
+
+def assert_issues_refresh_cookie(response):
+    """The refresh token must never appear in the JSON body (that's the
+    whole point of the cookie-based redesign -- see SECURITY.md's Token
+    storage section) -- only in an HttpOnly cookie."""
+    assert "refresh" not in response.data
+    assert REFRESH_COOKIE_NAME in response.cookies
+    cookie = response.cookies[REFRESH_COOKIE_NAME]
+    assert cookie.value
+    assert cookie["httponly"]
 
 
 def signup_payload(**overrides):
@@ -215,7 +229,7 @@ def test_login_success(api_client, test_user):
     )
     assert response.status_code == status.HTTP_200_OK
     assert "access" in response.data
-    assert "refresh" in response.data
+    assert_issues_refresh_cookie(response)
     assert response.data["user"]["email"] == test_user.email
 
 @pytest.mark.django_db
@@ -250,7 +264,7 @@ def test_google_login_creates_new_active_user(api_client, settings, monkeypatch)
 
     assert response.status_code == status.HTTP_200_OK
     assert "access" in response.data
-    assert "refresh" in response.data
+    assert_issues_refresh_cookie(response)
     assert response.data["user"]["email"] == "newgoogleuser@example.com"
     assert response.data["user"]["first_name"] == "Gigi"
 
@@ -277,6 +291,39 @@ def test_google_login_logs_in_existing_user_without_creating_duplicate(api_clien
     assert response.status_code == status.HTTP_200_OK
     assert response.data["user"]["id"] == test_user.id
     assert User.objects.filter(email=test_user.email).count() == 1
+
+@pytest.mark.django_db
+def test_google_login_invalidates_attacker_set_password_on_reactivation(api_client, settings, monkeypatch):
+    """An attacker who pre-registers someone else's email via the normal
+    signup flow (creating an inactive account with a password only the
+    attacker knows) must not be able to use that password once the real
+    owner proves ownership via Google -- Google reactivating the account
+    must invalidate whatever password was already set on it."""
+    attacker_password = "AttackerChosenPassword1!"
+    victim = User.objects.create_user(
+        username="victim@example.com",
+        email="victim@example.com",
+        password=attacker_password,
+        is_active=False,
+    )
+
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+    monkeypatch.setattr(
+        "users.views.google_id_token.verify_oauth2_token",
+        lambda credential, request, client_id: {
+            "email": "victim@example.com",
+            "email_verified": True,
+            "given_name": "Victim",
+        },
+    )
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_200_OK
+    victim.refresh_from_db()
+    assert victim.is_active is True
+    assert victim.has_usable_password() is False
+    assert not victim.check_password(attacker_password)
 
 @pytest.mark.django_db
 def test_google_login_rejects_unverified_email(api_client, settings, monkeypatch):
@@ -335,17 +382,105 @@ def test_profile_unauthenticated(api_client):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 @pytest.mark.django_db
-def test_logout_success(auth_client, test_user):
-    refresh = RefreshToken.for_user(test_user)
-    response = auth_client.post(
-        "/api/logout/",
-        {
-            "refresh": str(refresh)
-        },
-        format="json"
+def test_logout_success(api_client, test_user):
+    """logout no longer reads a token from the request body -- it reads
+    the HttpOnly refresh cookie the test client picked up automatically
+    from the /api/login/ response (Django's test client persists cookies
+    across requests, same as a real browser)."""
+    login_response = api_client.post(
+        "/api/login/", {"email": test_user.email, "password": "TestPass123!"}, format="json"
     )
+    refresh_value = login_response.cookies[REFRESH_COOKIE_NAME].value
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login_response.data['access']}")
+
+    response = api_client.post("/api/logout/", {}, format="json")
     assert response.status_code == status.HTTP_200_OK
     assert response.data["detail"] == "Logout successful."
+    assert response.cookies[REFRESH_COOKIE_NAME].value == ""
+
+    with pytest.raises(TokenError):
+        RefreshToken(refresh_value)
+
+@pytest.mark.django_db
+def test_logout_without_cookie_still_succeeds(api_client, auth_client):
+    """No refresh cookie present (already logged out elsewhere, cleared by
+    the browser, etc.) -- logout stays idempotent rather than erroring."""
+    response = auth_client.post("/api/logout/", {}, format="json")
+    assert response.status_code == status.HTTP_200_OK
+
+@pytest.mark.django_db
+def test_logout_rejects_form_encoded_body(auth_client):
+    """JSON-only parsing on purpose -- see the comment on logout() in
+    views.py. A classic cross-site <form> POST can only send
+    application/x-www-form-urlencoded or multipart/form-data, both
+    rejected here with a 415, which is what actually blocks that CSRF
+    vector (the browser-enforced Content-Type restriction on <form>, not
+    anything this test can directly exercise cross-origin)."""
+    response = auth_client.post("/api/logout/", {"anything": "value"})
+    assert response.status_code == status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+
+@pytest.mark.django_db
+def test_token_refresh_issues_new_access_token_and_rotates_cookie(api_client, test_user):
+    login_response = api_client.post(
+        "/api/login/", {"email": test_user.email, "password": "TestPass123!"}, format="json"
+    )
+    old_access = login_response.data["access"]
+    old_refresh = login_response.cookies[REFRESH_COOKIE_NAME].value
+
+    response = api_client.post("/api/token/refresh/", {}, format="json")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert "refresh" not in response.data
+    new_access = response.data["access"]
+    assert new_access and new_access != old_access
+
+    new_refresh = response.cookies[REFRESH_COOKIE_NAME].value
+    assert new_refresh and new_refresh != old_refresh
+    # ROTATE_REFRESH_TOKENS + BLACKLIST_AFTER_ROTATION are on -- the old
+    # refresh token must be dead now, not just superseded.
+    with pytest.raises(TokenError):
+        RefreshToken(old_refresh)
+
+@pytest.mark.django_db
+def test_token_refresh_rejects_form_encoded_body(api_client, test_user):
+    login_response = api_client.post(
+        "/api/login/", {"email": test_user.email, "password": "TestPass123!"}, format="json"
+    )
+    api_client.cookies[REFRESH_COOKIE_NAME] = login_response.cookies[REFRESH_COOKIE_NAME].value
+
+    response = api_client.post("/api/token/refresh/", {"anything": "value"})
+    assert response.status_code == status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+
+@pytest.mark.django_db
+def test_token_refresh_rejects_missing_cookie(api_client):
+    """400, not 401 -- this endpoint must stay reachable with zero
+    credentials (see PUBLIC_ENDPOINTS in config/test_authentication_filters.py),
+    matching the original stock TokenRefreshView's behavior for a missing
+    `refresh` field (a validation error, not an auth failure)."""
+    response = api_client.post("/api/token/refresh/", {}, format="json")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+@pytest.mark.django_db
+def test_token_refresh_rejects_reused_rotated_token(api_client, test_user):
+    """Using the same refresh cookie twice in a row must fail the second
+    time -- proves rotation+blacklist is actually wired through the
+    cookie-based view, not just present in SIMPLE_JWT settings that
+    nothing consults."""
+    login_response = api_client.post(
+        "/api/login/", {"email": test_user.email, "password": "TestPass123!"}, format="json"
+    )
+    api_client.cookies[REFRESH_COOKIE_NAME] = login_response.cookies[REFRESH_COOKIE_NAME].value
+
+    first = api_client.post("/api/token/refresh/", {}, format="json")
+    assert first.status_code == status.HTTP_200_OK
+
+    # Force the client back to the now-rotated-out original cookie instead
+    # of the new one it just received, to simulate a copy of the old
+    # refresh token being replayed (e.g. by an attacker who captured it
+    # before rotation).
+    api_client.cookies[REFRESH_COOKIE_NAME] = login_response.cookies[REFRESH_COOKIE_NAME].value
+    second = api_client.post("/api/token/refresh/", {}, format="json")
+    assert second.status_code == status.HTTP_401_UNAUTHORIZED
 
 @pytest.mark.django_db
 def test_password_reset_request_sends_email_for_existing_user(api_client, test_user):
@@ -380,9 +515,29 @@ def test_password_reset_confirm_success(api_client, test_user):
         format="json"
     )
     assert response.status_code == status.HTTP_200_OK
+    assert_issues_refresh_cookie(response)
 
     test_user.refresh_from_db()
     assert test_user.check_password("BrandNewPass123!")
+
+@pytest.mark.django_db
+def test_password_reset_confirm_revokes_outstanding_refresh_tokens(api_client, test_user):
+    """A reset is plausibly happening *because* the account was
+    compromised -- any refresh token issued before the reset (e.g. one an
+    attacker holds) must stop working once it completes."""
+    old_refresh = RefreshToken.for_user(test_user)
+
+    uid = urlsafe_base64_encode(force_bytes(test_user.pk))
+    token = default_token_generator.make_token(test_user)
+    response = api_client.post(
+        "/api/password-reset/confirm/",
+        {"uid": uid, "token": token, "new_password": "BrandNewPass123!"},
+        format="json",
+    )
+    assert response.status_code == status.HTTP_200_OK
+
+    with pytest.raises(TokenError):
+        RefreshToken(str(old_refresh))
 
 @pytest.mark.django_db
 def test_password_reset_confirm_rejects_invalid_token(api_client, test_user):
@@ -462,6 +617,26 @@ def test_profile_update_avatar_is_resized(auth_client, test_user):
     profile.avatar.delete(save=True)
 
 @pytest.mark.django_db
+def test_profile_update_rejects_non_image_avatar(auth_client, test_user):
+    """ProfileUpdateSerializer.avatar is a DRF ImageField -- validation
+    (Pillow-backed, same as resize_avatar_file's own Image.open()) runs
+    during serializer.is_valid(), so a non-image file never reaches
+    resize_avatar_file at all; it 400s here, not with a 500 from a
+    downstream PIL.UnidentifiedImageError."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    not_an_image = SimpleUploadedFile("shell.php", b"<?php system($_GET['c']); ?>", content_type="image/png")
+
+    response = auth_client.patch("/api/profile/", {"avatar": not_an_image}, format="multipart")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "avatar" in response.data
+
+    from users.models import Profile
+    profile = Profile.objects.filter(user=test_user).first()
+    assert not profile or not profile.avatar
+
+@pytest.mark.django_db
 def test_change_password_wrong_current_password(auth_client, test_user):
     response = auth_client.post(
         "/api/profile/change-password/",
@@ -483,6 +658,28 @@ def test_change_password_success(auth_client, test_user):
     test_user.refresh_from_db()
     assert test_user.check_password("BrandNewPass123!")
     assert not test_user.check_password("TestPass123!")
+
+@pytest.mark.django_db
+def test_change_password_revokes_outstanding_refresh_tokens(api_client, test_user):
+    """A refresh token issued before the password change must be unusable
+    afterward -- otherwise a stolen token survives the very event meant to
+    lock an attacker out."""
+    login_response = api_client.post(
+        "/api/login/", {"email": test_user.email, "password": "TestPass123!"}, format="json"
+    )
+    stolen_refresh = login_response.cookies[REFRESH_COOKIE_NAME].value
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login_response.data['access']}")
+
+    response = api_client.post(
+        "/api/profile/change-password/",
+        {"current_password": "TestPass123!", "new_password": "BrandNewPass123!"},
+        format="json",
+    )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.cookies[REFRESH_COOKIE_NAME].value == ""
+
+    with pytest.raises(TokenError):
+        RefreshToken(stolen_refresh)
 
 @pytest.mark.django_db
 def test_change_password_unauthenticated(api_client):
@@ -561,7 +758,7 @@ def test_verify_email_otp_activates_account_and_logs_in(api_client, monkeypatch)
     )
     assert response.status_code == status.HTTP_200_OK
     assert "access" in response.data
-    assert "refresh" in response.data
+    assert_issues_refresh_cookie(response)
 
     user.refresh_from_db()
     assert user.is_active is True

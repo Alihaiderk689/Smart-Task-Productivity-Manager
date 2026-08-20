@@ -6,6 +6,13 @@ Project-specific notes for Claude Code. User-facing feature docs live in
 architecture, conventions, dev-environment quirks, and gotchas discovered
 while building it out.
 
+Before modifying authentication, authorization, or anything touching user
+data isolation, read [SECURITY.md](SECURITY.md). Before making a system
+design decision (new app, background job, deployment change, external
+API integration), read [ARCHITECTURE.md](ARCHITECTURE.md) — it explains
+*why* the system is shaped the way it is, not just how to run it. Before
+any production release, run through [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
+
 ## What this is
 
 A full-stack task manager (Django REST Framework + React/Vite) that has

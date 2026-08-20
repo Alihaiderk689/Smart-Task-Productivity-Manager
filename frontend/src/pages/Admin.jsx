@@ -80,8 +80,12 @@ export default function Admin() {
   }, []);
 
   const loadUsers = useCallback(async (searchTerm) => {
+    // Paginated on the backend now (see adminpanel/pagination.py) -- the
+    // page_size (500) is set well above realistic near-term user counts,
+    // so .results still holds everything for this page's own client-side
+    // slicing below; it's a ceiling, not a UI change.
     const { data } = await adminApi.users(searchTerm ? { search: searchTerm } : undefined);
-    setUsers(data);
+    setUsers(data.results);
   }, []);
 
   const loadSystemStatus = useCallback(async () => {
@@ -148,7 +152,7 @@ export default function Admin() {
     setTasksLoading(true);
     try {
       const { data } = await adminApi.userTasks(target.id);
-      setUserTasks(data);
+      setUserTasks(data.results);
     } catch {
       toast.error('Failed to load tasks');
       setUserTasks([]);

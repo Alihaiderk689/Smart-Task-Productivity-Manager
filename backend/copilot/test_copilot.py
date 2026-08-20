@@ -1703,6 +1703,19 @@ def test_chat_send_endpoint_rejects_empty_message(staff_client):
 
 
 @pytest.mark.django_db
+def test_chat_send_endpoint_is_rate_limited(staff_client):
+    """Each message can trigger a real, billed LLM call -- see
+    copilot/throttling.py::ChatRateThrottle. An empty message 400s before
+    ever reaching the LLM, so this stays fast and needs no GROQ_API_KEY."""
+    for _ in range(20):
+        response = staff_client.post("/api/copilot/chat/send/", {"message": "   "}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    throttled = staff_client.post("/api/copilot/chat/send/", {"message": "   "}, format="json")
+    assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+@pytest.mark.django_db
 def test_chat_send_endpoint_success(staff_client, settings):
     settings.GROQ_API_KEY = "fake-key"
     fake_inner_client = SimpleNamespace(

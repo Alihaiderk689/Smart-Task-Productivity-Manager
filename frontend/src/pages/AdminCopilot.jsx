@@ -14,7 +14,10 @@ const CHAT_SESSION_ID = 'default';
 // Both lists are fetched in full (capped at 50 server-side, see
 // copilot/views.py::RecommendationListView/AgentRunListView) and paged
 // client-side, since 50 items is small enough that a second round-trip per
-// page would just add latency for no real benefit.
+// page would just add latency for no real benefit. PAGE_SIZE is only the
+// baseline used to derive a shared total-page count between the two lists
+// (see totalPages below) -- the actual items shown per page can differ from
+// this per list.
 const PAGE_SIZE = 5;
 
 const RISK_BADGE = {
@@ -123,10 +126,24 @@ export default function AdminCopilot() {
     );
   }
 
-  const recTotalPages = Math.max(1, Math.ceil(recommendations.length / PAGE_SIZE));
-  const pagedRecommendations = recommendations.slice((recPage - 1) * PAGE_SIZE, recPage * PAGE_SIZE);
-  const runsTotalPages = Math.max(1, Math.ceil(runs.length / PAGE_SIZE));
-  const pagedRuns = runs.slice((runsPage - 1) * PAGE_SIZE, runsPage * PAGE_SIZE);
+  // The two lists rarely have the same number of items, so paging each one
+  // independently at a fixed PAGE_SIZE gives them different page counts
+  // (e.g. "Page 1 of 3" next to "Page 1 of 10"), which reads as inconsistent
+  // side by side. Instead we pick one shared totalPages -- whichever list
+  // would need more pages at PAGE_SIZE -- and stretch the other list's
+  // per-page item count to match it, so both panels always show "Page 1 of N"
+  // with the same N.
+  const totalPages = Math.max(
+    1,
+    Math.ceil(recommendations.length / PAGE_SIZE),
+    Math.ceil(runs.length / PAGE_SIZE)
+  );
+  const recPageSize = Math.max(1, Math.ceil(recommendations.length / totalPages));
+  const runsPageSize = Math.max(1, Math.ceil(runs.length / totalPages));
+  const recTotalPages = totalPages;
+  const pagedRecommendations = recommendations.slice((recPage - 1) * recPageSize, recPage * recPageSize);
+  const runsTotalPages = totalPages;
+  const pagedRuns = runs.slice((runsPage - 1) * runsPageSize, runsPage * runsPageSize);
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">

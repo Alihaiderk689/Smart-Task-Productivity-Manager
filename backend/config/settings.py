@@ -59,6 +59,41 @@ if os.getenv("ENVIRONMENT", "development") == "production":
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    # HTTP Strict Transport Security -- tells the browser to rewrite every
+    # future request to this host to HTTPS on its own, for the next year,
+    # without waiting for our own SECURE_SSL_REDIRECT to 301 it there
+    # first (that redirect is still one plaintext round trip an
+    # on-path attacker could tamper with; HSTS is what closes that gap on
+    # repeat visits). Safe to enable now specifically because
+    # SECURE_SSL_REDIRECT above has already been live and working -- HSTS
+    # is materially harder to walk back than a redirect (every browser
+    # that's seen the header refuses plain HTTP to this host, including
+    # the backend's own health-check-over-HTTP path if that ever existed,
+    # until the max-age expires), so it should only ever be turned on
+    # once HTTPS itself is already confirmed solid, not before.
+    SECURE_HSTS_SECONDS = 31536000  # 1 year -- the conventional value once stable
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    # NOT enabling HSTS preload here: preload is a one-way door (submitting
+    # to https://hstspreload.org bakes this host into browsers' shipped
+    # HSTS list, effectively permanently -- removal takes months and only
+    # affects future browser releases). That's a deliberate, manual step
+    # for whoever owns the domain to take once they're certain, not
+    # something a settings.py default should opt them into.
+    SECURE_HSTS_PRELOAD = False
+    # Production frontend (Vercel) and backend (Render) are on different
+    # registrable domains, not just different subdomains -- a genuinely
+    # cross-site relationship, so the refresh-token cookie (see
+    # users/token_cookies.py) needs SameSite=None (and, per spec, that
+    # requires Secure=True) to be sent at all. Dev/CI keep both on
+    # localhost at different ports, which browsers treat as same-site, so
+    # SameSite=Lax there is both sufficient and lets the cookie work over
+    # plain http without relying on the "localhost is trustworthy" browser
+    # exception.
+    REFRESH_COOKIE_SECURE = True
+    REFRESH_COOKIE_SAMESITE = "None"
+else:
+    REFRESH_COOKIE_SECURE = False
+    REFRESH_COOKIE_SAMESITE = "Lax"
 
 # Shared secret for the internal scheduled-tasks endpoint (core/views.py) --
 # GitHub Actions' scheduled-tasks.yml is the only caller. Not a Django
@@ -250,6 +285,14 @@ CORS_ALLOWED_ORIGINS = [
     ] if origin
 ]
 
+# Required for the browser to attach the HttpOnly refresh-token cookie
+# (users/token_cookies.py) to cross-origin requests to /api/token/refresh/
+# and /api/logout/ -- safe specifically because CORS_ALLOWED_ORIGINS above
+# is an explicit allowlist, never CORS_ALLOW_ALL_ORIGINS (django-cors-headers
+# refuses to combine ALLOW_ALL with ALLOW_CREDENTIALS for exactly this
+# reason: wildcard + credentials would let any origin ride the cookie).
+CORS_ALLOW_CREDENTIALS = True
+
 # Use bcrypt for password hashing (development). PBKDF2 remains as fallback.
 AUTH_PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
@@ -278,20 +321,24 @@ REST_FRAMEWORK = {
         "auth": "10/min",
         "internal_tasks": "20/min",
         "health": "60/min",
+        # Both trigger real, billed LLM calls -- see copilot/throttling.py
+        # and evaluation/throttling.py for why these two get their own
+        # (much tighter than "auth") scopes.
+        "copilot_chat": "20/min",
+        "evaluation_run": "5/hour",
     },
 }
 
+# Access tokens are short-lived on purpose: they're the frontend's only
+# persistent credential now (kept in memory, never in localStorage -- see
+# users/token_cookies.py), and SimpleJWT's blacklist app only ever
+# consults the blacklist during refresh-token rotation -- it does NOT
+# invalidate an already-issued access token still within its lifetime, so
+# this window is the actual bound on how long a stolen access token (or
+# one still live after a password change, see users/views.py::change_password)
+# stays usable.
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    
-}
-
-# Simple JWT settings (defaults are fine for dev)
-
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 
     'ROTATE_REFRESH_TOKENS': True,
