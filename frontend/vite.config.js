@@ -43,9 +43,17 @@ function htmlSecurityHeaders() {
   return {
     name: 'html-security-headers',
     transformIndexHtml(html, ctx) {
-      const apiRoot = ctx.server
-        ? DEFAULT_API_ROOT // `vite dev` -- always same-origin via the proxy below
-        : (loadEnv(process.env.NODE_ENV ?? 'production', projectRoot, 'VITE_').VITE_API_ROOT || DEFAULT_API_ROOT)
+      if (ctx.server) {
+        // `vite dev` injects its own inline React-refresh preamble script,
+        // which a strict script-src (no 'unsafe-inline'/nonce) blocks --
+        // that broke HMR entirely ("plugin-react can't detect preamble")
+        // and left the app blank. This CSP is a production-only concern
+        // (see the file-level comment above): dev is never served by
+        // nginx/Vercel, so skip injecting it here.
+        return html
+      }
+
+      const apiRoot = loadEnv(process.env.NODE_ENV ?? 'production', projectRoot, 'VITE_').VITE_API_ROOT || DEFAULT_API_ROOT
       const apiOrigin = resolveApiOrigin(apiRoot)
 
       const directives = {
@@ -113,7 +121,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
+      '/api': 'http://127.0.0.1:8001',
     },
   },
 })
