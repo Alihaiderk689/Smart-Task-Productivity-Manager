@@ -349,13 +349,13 @@ SIMPLE_JWT = {
 
 
 #for email backend
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# Sends via the Brevo HTTP API rather than SMTP -- see
+# notifications/brevo_backend.py's module docstring for why (Render's
+# free tier blocks outbound SMTP ports, and SMTP providers in general are
+# unreliable from cloud/datacenter IPs).
+EMAIL_BACKEND = "notifications.brevo_backend.BrevoEmailBackend"
 
-EMAIL_HOST = os.getenv("EMAIL_HOST")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 
 # Base URL of the frontend app, used to build links sent in emails (e.g. password reset).

@@ -215,6 +215,34 @@ def test_transient_error_requeues_then_fails_after_max_attempts(task_factory, mo
 
 
 @pytest.mark.django_db
+def test_brevo_api_error_is_treated_as_transient(task_factory, monkeypatch):
+    """A Brevo API/network failure (brevo_backend.BrevoAPIError) must be
+    retried the same way a raw ConnectionError/TimeoutError already is --
+    see EMAIL_TRANSIENT_ERRORS in reminder_processor.py."""
+    from notifications import reminder_processor
+    from notifications.brevo_backend import BrevoAPIError
+
+    now = timezone.now()
+    task = task_factory(status="Pending", start_time=now + timedelta(hours=1), end_time=now + timedelta(hours=2))
+    reminder = Reminder.objects.create(
+        task=task, kind=Reminder.Kind.THIRTY_MIN, scheduled_for=now - timedelta(minutes=1),
+        generation=task.reminder_version,
+    )
+
+    def always_fails(*args, **kwargs):
+        raise BrevoAPIError("Brevo API returned 500: upstream error")
+
+    monkeypatch.setattr(reminder_processor.EmailService, "send_email", staticmethod(always_fails))
+
+    process_due_reminders()
+    reminder.refresh_from_db()
+
+    assert reminder.status == Reminder.Status.PENDING
+    assert reminder.attempts == 1
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
 def test_non_transient_error_fails_immediately_without_retry(task_factory, monkeypatch):
     from notifications import reminder_processor
 

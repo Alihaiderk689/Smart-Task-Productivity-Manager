@@ -40,7 +40,6 @@ traceable rather than silent:
 from __future__ import annotations
 
 import logging
-import smtplib
 from datetime import timedelta
 
 from django.conf import settings
@@ -50,16 +49,21 @@ from django.utils import timezone
 
 from tasks.models import Task
 
+from .brevo_backend import BrevoAPIError
 from .email_service import EmailService
 from .models import Reminder
 
 logger = logging.getLogger(__name__)
 
 # Same transient-vs-real-bug distinction the old Celery autoretry_for used:
-# an SMTP hiccup/DNS blip/connection reset is worth retrying; a bug in our
-# own code should fail fast and show up in logs instead of quietly
-# retrying and burying the traceback.
-EMAIL_TRANSIENT_ERRORS = (smtplib.SMTPException, ConnectionError, TimeoutError, OSError)
+# a Brevo API/network hiccup is worth retrying; a bug in our own code
+# should fail fast and show up in logs instead of quietly retrying and
+# burying the traceback. BrevoAPIError covers every failure the Brevo
+# backend itself raises (HTTP errors and network failures alike -- see
+# notifications/brevo_backend.py); ConnectionError/TimeoutError/OSError
+# are kept for any lower-level socket error that surfaces before it gets
+# wrapped.
+EMAIL_TRANSIENT_ERRORS = (BrevoAPIError, ConnectionError, TimeoutError, OSError)
 
 # Retries now happen by going back to PENDING for the *next* sweep --
 # naturally rate-limited by the sweep's own cadence, no busy-loop -- capped
