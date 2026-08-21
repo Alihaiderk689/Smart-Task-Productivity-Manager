@@ -157,9 +157,14 @@ not linked automatically.
   (`DEFAULT_FILE_STORAGE` only switches to Cloudinary if all three
   `CLOUDINARY_STORAGE` values are set; otherwise local disk, which is what
   keeps fresh dev setups and CI working without credentials).
-- **SMTP** (`EMAIL_BACKEND`) — OTP codes, password reset links, reminder
-  emails. No transactional-email provider abstraction; swapping providers
-  means swapping the SMTP host env vars, not code.
+- **Brevo** (`EMAIL_BACKEND` → `notifications.brevo_backend.
+  BrevoEmailBackend`) — OTP codes, password reset links, reminder emails,
+  sent via Brevo's HTTP API. Chosen over SMTP because Render blocks
+  outbound SMTP ports on its free tier and SMTP providers in general are
+  unreliable from cloud/datacenter IPs. The backend is a normal Django
+  `EMAIL_BACKEND`, so `notifications/email_service.py` and every call site
+  still just call `send_mail` unchanged; swapping providers again later
+  means writing a new `EMAIL_BACKEND` class, not touching call sites.
 
 ## Caching
 

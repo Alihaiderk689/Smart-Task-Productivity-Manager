@@ -1252,7 +1252,7 @@ procedure to follow:
 
 1. **Contain** — rotate the specific leaked credential first
    (`SECRET_KEY`, DB password, `INTERNAL_TASK_KEY`, an LLM API key,
-   `GOOGLE_CLIENT_ID`/secret, SMTP/Cloudinary credentials) in its
+   `GOOGLE_CLIENT_ID`/secret, `BREVO_API_KEY`/Cloudinary credentials) in its
    source-of-truth (Render/Vercel env vars, GitHub Actions secrets,
    Supabase dashboard, the provider's own console).
 2. **Revoke sessions if `SECRET_KEY` leaked [CODE]** — confirmed by
