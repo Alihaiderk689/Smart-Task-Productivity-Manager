@@ -23,4 +23,5 @@ gunicorn==23.0.0
 whitenoise==6.8.2
 django-filter==25.1
 drf-yasg==1.21.10
+requests==2.32.5   # direct dep of notifications/brevo_backend.py's HTTP calls to Brevo's transactional email API; previously only transitive via google-auth
 

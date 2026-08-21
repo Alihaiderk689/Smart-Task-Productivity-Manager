@@ -28,7 +28,7 @@ dev default) is the most common way these regress.
       files).
 - [ ] `SECRET_KEY`, `INTERNAL_TASK_KEY`, DB credentials, `GROQ_API_KEY` /
       `GEMINI_API_KEY` / `OPENROUTER_API_KEY`, `GOOGLE_CLIENT_ID`,
-      Cloudinary credentials, and SMTP credentials are all set via the
+      Cloudinary credentials, and `BREVO_API_KEY` are all set via the
       hosting platform's env var UI (Render/Vercel/GitHub Actions
       secrets), not hardcoded anywhere.
 - [ ] `INTERNAL_TASK_KEY` matches exactly between the Render backend env

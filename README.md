@@ -101,7 +101,7 @@ npm run dev
 | `ENVIRONMENT` | `development` or `production` — picks which database URL is used |
 | `SECRET_KEY` | Django secret key |
 | `DATABASE_URL_DEV` / `DATABASE_URL_PROD` | Postgres connection string for each environment |
-| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `DEFAULT_FROM_EMAIL` | SMTP credentials for sending reminder/auth emails |
+| `BREVO_API_KEY`, `DEFAULT_FROM_EMAIL` | Brevo API key and sender address for reminder/auth emails (sent via the Brevo HTTP API, not SMTP) |
 | `FRONTEND_URL` | Used to build links in emails (reset password, verify email, reschedule) |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Optional — avatar uploads fall back to local disk storage if left blank |
 
