@@ -1,0 +1,58 @@
+name: Keep-alive ping
+
+# Pings the backend's public health endpoint every 10 minutes purely to
+# keep the Render free-tier instance warm and reduce cold starts. Entirely
+# separate from scheduled-tasks.yml, which runs actual scheduled jobs
+# (reminders, admin-copilot checks) through a protected,
+# INTERNAL_TASK_KEY-gated endpoint -- this workflow never touches that
+# endpoint and never triggers any task/reminder processing. It only calls
+# GET /api/core/health/ (see backend/core/views.py::health), which is
+# public, unauthenticated, and does nothing more than a cheap DB liveness
+# check -- no database writes, no scheduled-task side effects.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Queue rather than overlap -- a run only ever takes a few seconds, so
+# there's no real overlap risk, but there's no reason to invite it either.
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Ping health endpoint
+        env:
+          BACKEND_URL: ${{ vars.RENDER_BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::The RENDER_BACKEND_URL repository variable is not set (Settings -> Secrets and variables -> Actions -> Variables) -- the same variable scheduled-tasks.yml and deploy.yml already use."
+            exit 1
+          fi
+
+          echo "Pinging $BACKEND_URL/api/core/health/ ..."
+
+          # Same retry policy as scheduled-tasks.yml's own wake-up step:
+          # tolerates Render's observed 70-110s cold start and a transient
+          # 503 (awake, DB not ready yet) without treating either as a
+          # real failure. Endpoint is public/unauthenticated/read-only, so
+          # liberal retrying here is safe -- and the URL itself is a
+          # non-secret repo variable, so nothing sensitive ends up in logs.
+          if curl --silent --show-error --fail \
+              --connect-timeout 10 --max-time 30 \
+              --retry 15 --retry-delay 8 --retry-all-errors \
+              -o /dev/null -w 'health check HTTP status: %{http_code}\n' \
+              "$BACKEND_URL/api/core/health/"; then
+            echo "Backend responded healthy."
+          else
+            echo "::error::Health check failed at $BACKEND_URL/api/core/health/ after retrying -- backend may be down or Render may be having an outage."
+            exit 1
+          fi

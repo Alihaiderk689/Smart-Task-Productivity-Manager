@@ -157,9 +157,15 @@ not linked automatically.
   (`DEFAULT_FILE_STORAGE` only switches to Cloudinary if all three
   `CLOUDINARY_STORAGE` values are set; otherwise local disk, which is what
   keeps fresh dev setups and CI working without credentials).
-- **SMTP** (`EMAIL_BACKEND`) — OTP codes, password reset links, reminder
-  emails. No transactional-email provider abstraction; swapping providers
-  means swapping the SMTP host env vars, not code.
+- **Resend** (`EMAIL_BACKEND` → `notifications.resend_backend.
+  ResendEmailBackend`) — OTP codes, password reset links, reminder emails,
+  sent via Resend's HTTP API. Chosen over SMTP because Render blocks
+  outbound SMTP ports on its free tier and Gmail SMTP specifically drops
+  connections from datacenter IPs regardless (see SCALABILITY.md #1). The
+  backend is a normal Django `EMAIL_BACKEND`, so `notifications/
+  email_service.py` and every call site still just call `send_mail`
+  unchanged; swapping providers again later means writing a new
+  `EMAIL_BACKEND` class, not touching call sites.
 
 ## Caching
 

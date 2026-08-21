@@ -40,13 +40,13 @@ traceable rather than silent:
 from __future__ import annotations
 
 import logging
-import smtplib
 from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
+from resend.exceptions import ResendError
 
 from tasks.models import Task
 
@@ -56,10 +56,15 @@ from .models import Reminder
 logger = logging.getLogger(__name__)
 
 # Same transient-vs-real-bug distinction the old Celery autoretry_for used:
-# an SMTP hiccup/DNS blip/connection reset is worth retrying; a bug in our
-# own code should fail fast and show up in logs instead of quietly
-# retrying and burying the traceback.
-EMAIL_TRANSIENT_ERRORS = (smtplib.SMTPException, ConnectionError, TimeoutError, OSError)
+# a Resend API/network hiccup is worth retrying; a bug in our own code
+# should fail fast and show up in logs instead of quietly retrying and
+# burying the traceback. ResendError covers every failure the Resend SDK
+# itself raises (HTTP errors, rate limits, and network failures alike --
+# see resend/request.py, which wraps request-level exceptions into a
+# ResendError too); ConnectionError/TimeoutError/OSError are kept for any
+# lower-level socket error that surfaces before the SDK gets a chance to
+# wrap it.
+EMAIL_TRANSIENT_ERRORS = (ResendError, ConnectionError, TimeoutError, OSError)
 
 # Retries now happen by going back to PENDING for the *next* sweep --
 # naturally rate-limited by the sweep's own cadence, no busy-loop -- capped

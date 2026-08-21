@@ -12,6 +12,9 @@ design decision (new app, background job, deployment change, external
 API integration), read [ARCHITECTURE.md](ARCHITECTURE.md) — it explains
 *why* the system is shaped the way it is, not just how to run it. Before
 any production release, run through [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
+Before reasoning about what breaks first as usage grows, read
+[SCALABILITY.md](SCALABILITY.md) — current bottlenecks and their actual
+priority order, not a generic scaling playbook.
 
 ## What this is
 

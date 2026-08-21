@@ -54,6 +54,35 @@ def test_signup_success(api_client):
     assert user.is_active is False
     assert len(mail.outbox) == 1
     assert "verification code" in mail.outbox[0].subject.lower()
+    assert response.data["email_sent"] is True
+
+@pytest.mark.django_db
+def test_signup_reports_when_verification_email_fails_to_send(api_client, monkeypatch):
+    """The account is still created (so the user isn't blocked by a flaky
+    email provider), but the response must say so honestly instead of
+    claiming an email went out -- see users/views.py::_send_otp_email."""
+    from notifications.email_service import EmailService
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("Resend API unreachable")
+
+    monkeypatch.setattr(EmailService, "send_email", staticmethod(boom))
+
+    response = api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Nora", email="nora@example.com"),
+        format="json"
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["email_sent"] is False
+    assert "couldn't send" in response.data["message"].lower()
+    assert len(mail.outbox) == 0
+
+    # The account and OTP still exist -- resend-verification is the
+    # recovery path, not signing up again.
+    user = User.objects.get(email="nora@example.com")
+    assert user.is_active is False
 
 @pytest.mark.django_db
 def test_signup_seeds_default_categories(api_client):
@@ -947,3 +976,36 @@ def test_resend_email_verification_generic_for_already_verified_account(api_clie
     )
     assert response.status_code == status.HTTP_200_OK
     assert len(mail.outbox) == 0
+
+@pytest.mark.django_db
+def test_resend_email_verification_stays_generic_even_if_send_fails(api_client, monkeypatch):
+    """A send failure here must not change the response -- doing so would
+    leak whether the account exists, the exact thing GENERIC_VERIFICATION_
+    RESEND_MESSAGE exists to prevent. Contrast with signup, which is safe
+    to report failure on since the requester already knows the account
+    exists (they just created it)."""
+    from notifications.email_service import EmailService
+    from users.models import EmailOTP
+    from users.views import GENERIC_VERIFICATION_RESEND_MESSAGE
+
+    api_client.post(
+        "/api/signup/",
+        signup_payload(first_name="Omar", email="omar@example.com"),
+        format="json"
+    )
+    user = User.objects.get(email="omar@example.com")
+    EmailOTP.objects.filter(user=user).update(last_sent_at=timezone.now() - timedelta(seconds=61))
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("Resend API unreachable")
+
+    monkeypatch.setattr(EmailService, "send_email", staticmethod(boom))
+
+    response = api_client.post(
+        "/api/verify-email/resend/",
+        {"email": "omar@example.com"},
+        format="json"
+    )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["detail"] == GENERIC_VERIFICATION_RESEND_MESSAGE
+    assert len(mail.outbox) == 1  # only the original signup send
