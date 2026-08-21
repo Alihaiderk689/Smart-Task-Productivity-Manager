@@ -51,11 +51,14 @@ def hello(request):
     })
 
 
-def _send_otp_email(user, code):
+def _send_otp_email(user, code) -> bool:
     """Best-effort: the account/OTP already exist in the DB by the time this
-    runs, so a transient SMTP failure (bad/missing EMAIL_* env vars, provider
-    hiccup) shouldn't 500 the whole signup/resend request -- just log it so
-    it's visible, and let the user retry via the resend-verification flow."""
+    runs, so a transient email-provider failure (bad/missing RESEND_API_KEY,
+    provider hiccup) shouldn't 500 the whole signup/resend request -- just
+    log it so it's visible, and let the user retry via the
+    resend-verification flow. Returns whether the send actually succeeded so
+    callers (signup) can tell the user honestly instead of always claiming
+    an email went out."""
     try:
         EmailService.send_email(
             subject="Your Smart Task Manager verification code",
@@ -63,8 +66,10 @@ def _send_otp_email(user, code):
             template_name="emails/verify_email_otp.html",
             context={"user": user, "code": code},
         )
+        return True
     except Exception:
         logger.exception("Failed to send OTP email to user_id=%s email=%r", user.id, user.email)
+        return False
 
 
 @api_view(["POST"])
@@ -97,12 +102,20 @@ def signup(request):
 
     create_default_categories(user)
     code = issue_otp(user)
-    _send_otp_email(user, code)
+    email_sent = _send_otp_email(user, code)
     logger.info("New account created: user_id=%s email=%r", user.id, user.email)
+
+    message = (
+        "Account created! Enter the verification code we emailed you to activate your account."
+        if email_sent else
+        "Account created, but we couldn't send the verification email right now. "
+        "Use the resend option on the verification screen to try again."
+    )
 
     return Response(
         {
-            "message": "Account created! Enter the verification code we emailed you to activate your account.",
+            "message": message,
+            "email_sent": email_sent,
             "user": {"id": user.id, "first_name": user.first_name, "email": user.email, "is_staff": user.is_staff},
         },
         status=status.HTTP_201_CREATED,

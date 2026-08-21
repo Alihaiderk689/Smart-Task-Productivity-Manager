@@ -23,4 +23,6 @@ gunicorn==23.0.0
 whitenoise==6.8.2
 django-filter==25.1
 drf-yasg==1.21.10
+resend==2.38.0
+requests==2.32.5   # direct dep of resend's HTTP client (notifications/resend_backend.py); previously only transitive via google-auth
 

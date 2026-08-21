@@ -349,13 +349,13 @@ SIMPLE_JWT = {
 
 
 #for email backend
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# Sends via the Resend HTTP API rather than SMTP -- see
+# notifications/resend_backend.py's module docstring for why (Render
+# blocks outbound SMTP ports on its free tier, and Gmail SMTP is
+# unreliable from datacenter IPs even where the port isn't blocked).
+EMAIL_BACKEND = "notifications.resend_backend.ResendEmailBackend"
 
-EMAIL_HOST = os.getenv("EMAIL_HOST")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 
 # Base URL of the frontend app, used to build links sent in emails (e.g. password reset).
