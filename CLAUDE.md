@@ -16,6 +16,32 @@ Before reasoning about what breaks first as usage grows, read
 [SCALABILITY.md](SCALABILITY.md) — current bottlenecks and their actual
 priority order, not a generic scaling playbook.
 
+## Feature memory (`.claude/memory/`) — read and update this every session
+
+This project keeps a per-feature memory bank at
+[.claude/memory/](.claude/memory/), indexed in
+[.claude/memory/INDEX.md](.claude/memory/INDEX.md). Each file documents
+one feature (roughly one backend app, or the frontend as a whole): key
+files, models, endpoints, invariants, and gotchas that aren't obvious
+just from reading the code cold. It's the layer between this file
+(conventions/dev-environment) and the code itself.
+
+**Before working on a feature** — implementing, debugging, or answering a
+question about it — check whether `.claude/memory/INDEX.md` lists a file
+for it and read that file first. It will often save you from re-deriving
+context (e.g. why reminders are database-backed, not Celery) that's easy
+to get wrong by reading the code alone.
+
+**After changing any file that belongs to a feature with a memory file**,
+update that file before considering the task done: new endpoints, changed
+invariants, new gotchas discovered, models added/changed. Keep entries
+factual and dense (see the existing files for the expected style) — no
+need for a paragraph if a sentence covers it. If a change introduces a
+feature with no existing file, add one and link it from `INDEX.md`. If
+you're unsure whether a change is memory-worthy, prefer updating over
+skipping — stale or missing memory is a worse failure mode than a slightly
+over-eager update.
+
 ## What this is
 
 A full-stack task manager (Django REST Framework + React/Vite) that has
