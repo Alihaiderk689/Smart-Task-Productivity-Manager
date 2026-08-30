@@ -1,13 +1,16 @@
+import threading
 from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.db import connections
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
+from rest_framework.test import APIClient
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -291,6 +294,46 @@ def test_google_login_logs_in_existing_user_without_creating_duplicate(api_clien
     assert response.status_code == status.HTTP_200_OK
     assert response.data["user"]["id"] == test_user.id
     assert User.objects.filter(email=test_user.email).count() == 1
+
+@pytest.mark.django_db
+def test_google_login_recovers_from_concurrent_account_creation_race(api_client, settings, monkeypatch):
+    # See SCALABILITY_AUDIT.md's H6: two concurrent first-time "Continue
+    # with Google" clicks for the same brand-new account can both pass the
+    # `user is None` check before either insert lands -- create_user() then
+    # raises IntegrityError for whichever request loses the race. Simulated
+    # here by making create_user() itself perform the "other request"'s
+    # insert and then raise, exactly what a real concurrent collision looks
+    # like from this request's point of view. The fix should sign this
+    # caller into the winning account instead of 500ing.
+    from django.db import IntegrityError
+
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+    monkeypatch.setattr(
+        "users.views.google_id_token.verify_oauth2_token",
+        lambda credential, request, client_id: {
+            "email": "racer@example.com",
+            "email_verified": True,
+            "given_name": "Racer",
+        },
+    )
+
+    def fake_create_user(**kwargs):
+        # Deliberately NOT calling User.objects.create_user() here -- that
+        # would recurse into this same patched method. .create() bypasses
+        # the patch and mirrors what a concurrent request's real
+        # create_user() call would have already committed.
+        winner = User.objects.create(username="racer@example.com", email="racer@example.com", first_name="Racer", is_active=True)
+        winner.set_unusable_password()
+        winner.save(update_fields=["password"])
+        raise IntegrityError("duplicate key value violates unique constraint")
+
+    monkeypatch.setattr("users.views.User.objects.create_user", fake_create_user)
+
+    response = api_client.post("/api/google-login/", {"credential": "fake-token"}, format="json")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["user"]["email"] == "racer@example.com"
+    assert User.objects.filter(email="racer@example.com").count() == 1
 
 @pytest.mark.django_db
 def test_google_login_invalidates_attacker_set_password_on_reactivation(api_client, settings, monkeypatch):
@@ -886,6 +929,58 @@ def test_resend_email_verification_locks_out_after_two_sends_in_a_cycle(api_clie
     response = api_client.post("/api/verify-email/resend/", {"email": "jae@example.com"}, format="json")
     assert response.status_code == status.HTTP_200_OK
     assert len(mail.outbox) == 2
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_resend_cannot_exceed_the_per_cycle_cap():
+    # See SCALABILITY_AUDIT.md's H6: without a row lock, two near-
+    # simultaneous "Resend code" taps can both read send_count before
+    # either write, so both pass the cap check and both send -- issue_otp
+    # now wraps the read-check-increment in select_for_update()/atomic()
+    # (users/otp.py), so only one of two concurrent resends past the cap
+    # boundary can actually send. Needs a real second DB connection
+    # (transaction=True), like tasks/test_tasks.py's equivalent race test.
+    client = APIClient()
+    client.post(
+        "/api/signup/",
+        signup_payload(first_name="Remy", email="remy@example.com"),
+        format="json",
+    )
+    assert len(mail.outbox) == 1  # signup's own send
+
+    from users.models import EmailOTP
+    user = User.objects.get(email="remy@example.com")
+    # One resend already used, cooldown elapsed -- exactly one more send is
+    # allowed (MAX_SENDS_PER_CYCLE=2) before the two concurrent attempts.
+    EmailOTP.objects.filter(user=user).update(
+        send_count=1,
+        last_sent_at=timezone.now() - timedelta(seconds=61),
+    )
+
+    barrier = threading.Barrier(2)
+    responses = []
+
+    def call():
+        thread_client = APIClient()
+        barrier.wait()
+        response = thread_client.post(
+            "/api/verify-email/resend/", {"email": "remy@example.com"}, format="json"
+        )
+        responses.append(response.status_code)
+        connections.close_all()
+
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Both requests get the same generic 200 either way (resend_email_verification
+    # never reveals whether a send actually happened) -- the real assertion
+    # is on send_count and the actual outbox, not the HTTP response.
+    assert responses == [status.HTTP_200_OK, status.HTTP_200_OK]
+    assert len(mail.outbox) == 2  # signup's send + exactly one resend, not two
+    assert EmailOTP.objects.get(user=user).send_count == 2
+
 
 @pytest.mark.django_db
 def test_resend_email_verification_allows_a_new_cycle_after_lockout_elapses(api_client):

@@ -38,7 +38,7 @@ def test_sends_correct_payload_and_headers(settings, monkeypatch):
         captured["timeout"] = timeout
         return _FakeResponse()
 
-    monkeypatch.setattr("notifications.brevo_backend.requests.post", fake_post)
+    monkeypatch.setattr("notifications.brevo_backend._session.post", fake_post)
 
     message = _message()
     message.attach_alternative("<p>hi</p>", "text/html")
@@ -58,7 +58,7 @@ def test_sends_correct_payload_and_headers(settings, monkeypatch):
 def test_omits_html_content_when_no_alternative_attached(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        "notifications.brevo_backend.requests.post",
+        "notifications.brevo_backend._session.post",
         lambda url, json, headers, timeout: captured.update(json) or _FakeResponse(),
     )
 
@@ -70,7 +70,7 @@ def test_omits_html_content_when_no_alternative_attached(monkeypatch):
 def test_includes_cc_bcc_reply_to_when_present(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        "notifications.brevo_backend.requests.post",
+        "notifications.brevo_backend._session.post",
         lambda url, json, headers, timeout: captured.update(json) or _FakeResponse(),
     )
 
@@ -85,7 +85,7 @@ def test_includes_cc_bcc_reply_to_when_present(monkeypatch):
 def test_parses_display_name_from_from_email(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        "notifications.brevo_backend.requests.post",
+        "notifications.brevo_backend._session.post",
         lambda url, json, headers, timeout: captured.update(json) or _FakeResponse(),
     )
 
@@ -97,7 +97,7 @@ def test_parses_display_name_from_from_email(monkeypatch):
 
 def test_raises_brevo_api_error_on_non_2xx_when_fail_silently_is_false(monkeypatch):
     monkeypatch.setattr(
-        "notifications.brevo_backend.requests.post",
+        "notifications.brevo_backend._session.post",
         lambda url, json, headers, timeout: _FakeResponse(status_code=401, text='{"message": "invalid api key"}'),
     )
 
@@ -110,7 +110,7 @@ def test_raises_brevo_api_error_on_network_failure(monkeypatch):
     def boom(url, json, headers, timeout):
         raise requests.ConnectionError("connection refused")
 
-    monkeypatch.setattr("notifications.brevo_backend.requests.post", boom)
+    monkeypatch.setattr("notifications.brevo_backend._session.post", boom)
 
     backend = BrevoEmailBackend(fail_silently=False)
     with pytest.raises(BrevoAPIError):
@@ -119,7 +119,7 @@ def test_raises_brevo_api_error_on_network_failure(monkeypatch):
 
 def test_swallows_failure_when_fail_silently_is_true(monkeypatch):
     monkeypatch.setattr(
-        "notifications.brevo_backend.requests.post",
+        "notifications.brevo_backend._session.post",
         lambda url, json, headers, timeout: _FakeResponse(status_code=500, text="down"),
     )
 
@@ -138,7 +138,7 @@ def test_one_failure_does_not_stop_the_rest_of_the_batch(monkeypatch):
             return _FakeResponse(status_code=500, text="down")
         return _FakeResponse()
 
-    monkeypatch.setattr("notifications.brevo_backend.requests.post", flaky)
+    monkeypatch.setattr("notifications.brevo_backend._session.post", flaky)
 
     backend = BrevoEmailBackend(fail_silently=True)
     sent = backend.send_messages([

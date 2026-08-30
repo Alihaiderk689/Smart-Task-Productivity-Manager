@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -41,9 +42,13 @@ def agent_status(request):
 
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
+@throttle_classes([ChatRateThrottle])
 def run_agent(request, agent_name):
     """Manually trigger a named agent right now (trigger="manual",
-    requested_by=the calling admin) -- the "Run Now" button."""
+    requested_by=the calling admin) -- the "Run Now" button. Throttled the
+    same as chat_send: each run still goes through the full LLM
+    retry/fallback chain (see SCALABILITY_AUDIT.md's C3), and this was the
+    one LLM-calling endpoint in this app with no rate limit at all."""
     agent_cls = get_agent_class(agent_name)
     if agent_cls is None:
         return Response(
@@ -118,12 +123,21 @@ def approve_recommendation(request, pk):
     -- an admin approving something expects it to happen right away, not on
     the next scheduled sweep. Observation-only alerts (no action_payload)
     have nothing to execute; approving one just acknowledges it."""
-    rec = get_object_or_404(Recommendation, pk=pk)
-    if rec.status != "pending":
-        return Response({"error": f"Recommendation is already {rec.status}."}, status=status.HTTP_400_BAD_REQUEST)
+    # select_for_update() + atomic() closes a TOCTOU race: without a row
+    # lock, two concurrent "Approve" clicks can both read status="pending"
+    # and both proceed to execute ActionAgent, which can run sensitive
+    # tools (deactivate_user, delete_completed_tasks) -- see
+    # SCALABILITY_AUDIT.md's H6. Mirrors tasks/views.py's lifecycle-
+    # transition fix for the same TOCTOU shape. The status flip is
+    # committed before ActionAgent runs, so the actual (possibly slower)
+    # tool execution doesn't hold the row lock.
+    with transaction.atomic():
+        rec = get_object_or_404(Recommendation.objects.select_for_update(), pk=pk)
+        if rec.status != "pending":
+            return Response({"error": f"Recommendation is already {rec.status}."}, status=status.HTTP_400_BAD_REQUEST)
 
-    repo = RecommendationRepository()
-    repo.approve(rec, by_user=request.user)
+        repo = RecommendationRepository()
+        repo.approve(rec, by_user=request.user)
 
     if rec.requires_approval:
         from .agents.action import ActionAgent

@@ -188,6 +188,13 @@ if ENVIRONMENT == "production":
         "default": dj_database_url.parse(
             DATABASE_URL,
             conn_max_age=600,
+            # Pings a persistent (conn_max_age) connection before reuse,
+            # but only once it's outlived Django's own staleness check --
+            # doesn't change pool size or connection count. Avoids
+            # intermittent "connection already closed" errors against
+            # Supabase's pooler as request volume/idle time grows. See
+            # SCALABILITY_AUDIT.md's M4.
+            conn_health_checks=True,
             ssl_require=True
         )
     }
