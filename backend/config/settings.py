@@ -31,7 +31,7 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # Secret key from env or fallback for local dev
-SECRET_KEY = SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Was reading DJANGO_DEBUG, but .env (and .env.example) set DEBUG -- that

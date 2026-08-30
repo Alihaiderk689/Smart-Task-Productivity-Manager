@@ -164,7 +164,7 @@ def test_task_list_never_includes_another_users_tasks(auth_client, test_user, ot
     response = auth_client.get("/api/tasks/")
 
     assert response.status_code == status.HTTP_200_OK
-    titles = [t["title"] for t in response.data]
+    titles = [t["title"] for t in response.data["results"]]
     assert titles == ["Mine"]
 
 

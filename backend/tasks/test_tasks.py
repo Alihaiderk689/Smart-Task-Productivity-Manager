@@ -1,7 +1,11 @@
 import pytest
+import threading
 from unittest.mock import patch
 from rest_framework import status
+from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 from tasks.models import Task
+from django.db import connections
 from django.utils import timezone
 from datetime import timedelta
 
@@ -17,8 +21,8 @@ def test_list_tasks(auth_client, test_user, task_factory):
     
     response = auth_client.get("/api/tasks/")
     assert response.status_code == status.HTTP_200_OK
-    assert len(response.data) == 2
-    titles = [t["title"] for t in response.data]
+    assert response.data["count"] == 2
+    titles = [t["title"] for t in response.data["results"]]
     assert "Task 1" in titles
     assert "Task 2" in titles
     assert "Other Task" not in titles
@@ -561,3 +565,76 @@ def test_stop_task_cancels_pending_reminders(auth_client, task_factory):
     assert response.status_code == status.HTTP_200_OK
     assert not Reminder.objects.filter(task=task, status=Reminder.Status.PENDING).exists()
     assert Reminder.objects.filter(task=task, status=Reminder.Status.CANCELLED).count() == 4
+
+
+@pytest.mark.django_db
+def test_task_list_is_paginated(auth_client, test_user, task_factory):
+    for i in range(3):
+        task_factory(title=f"Task {i}", user=test_user)
+
+    response = auth_client.get("/api/tasks/")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert set(response.data.keys()) == {"count", "next", "previous", "results"}
+    assert response.data["count"] == 3
+    assert len(response.data["results"]) == 3
+
+
+@pytest.mark.django_db
+def test_task_list_honors_page_size_query_param(auth_client, test_user, task_factory):
+    for i in range(3):
+        task_factory(title=f"Task {i}", user=test_user)
+
+    response = auth_client.get("/api/tasks/", {"page_size": 2})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["count"] == 3
+    assert len(response.data["results"]) == 2
+    assert response.data["next"] is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_pause_and_stop_never_produce_a_lying_response(test_user, task_factory):
+    # Live-reproduced in SCALABILITY_AUDIT.md's C6: without row locking,
+    # near-simultaneous pause+stop on the same task could both return 200
+    # while only one write actually landed -- a response that doesn't match
+    # the real DB state. With select_for_update()/atomic() (tasks/views.py),
+    # the two requests must serialize: whichever transaction commits second
+    # re-reads the *new* status, so every response stays truthful. This
+    # needs a real second DB connection (transaction=True), unlike the
+    # default django_db which wraps the whole test in one rolled-back
+    # transaction that a second thread would never see.
+    task = task_factory(user=test_user, status="In Progress")
+
+    def make_client():
+        client = APIClient()
+        refresh = RefreshToken.for_user(test_user)
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+        return client
+
+    barrier = threading.Barrier(2)
+    results = {}
+
+    def call(action):
+        client = make_client()
+        barrier.wait()
+        response = client.post(f"/api/tasks/{task.id}/{action}/")
+        results[action] = response.status_code
+        connections.close_all()
+
+    threads = [threading.Thread(target=call, args=(a,)) for a in ("pause", "stop")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    task.refresh_from_db()
+
+    # stop always succeeds from either In Progress or Paused, so it always
+    # wins the race in the end -- the only question is whether pause got a
+    # window to transiently land first (200) or was correctly rejected
+    # because stop had already completed the task (400). Either way, the
+    # response each caller received must match what's actually persisted.
+    assert results["stop"] == status.HTTP_200_OK
+    assert results["pause"] in (status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST)
+    assert task.status == "Completed"

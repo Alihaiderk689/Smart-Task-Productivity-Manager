@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import RetrieveUpdateDestroyAPIView
 
+from core.pagination import DefaultListPagination
 from notifications.reminder_processor import cancel_pending_reminders
 from notifications.services import NotificationService
 
@@ -24,6 +25,7 @@ REPEAT_MAX_DAYS = 30
 class TaskListCreateView(generics.ListCreateAPIView):
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = DefaultListPagination
 
     def get_queryset(self):
         return Task.objects.filter(user=self.request.user)
@@ -71,23 +73,30 @@ class TaskDetailView(RetrieveUpdateDestroyAPIView):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def start_task(request, pk):
-    try:
-        task = Task.objects.get(pk=pk, user=request.user)
+    # select_for_update() + atomic() closes a TOCTOU race: without a row
+    # lock, two concurrent requests can both read the pre-transition status
+    # and both write, so a caller's 200 response can lie about what actually
+    # got persisted (reproduced live -- see SCALABILITY_AUDIT.md's C6).
+    # Mirrors notifications/reminder_processor.py's _claim_batch, the
+    # codebase's existing race-safe pattern.
+    with transaction.atomic():
+        try:
+            task = Task.objects.select_for_update().get(pk=pk, user=request.user)
 
-    except Task.DoesNotExist:
-        return Response(
-            {"message": "Task not found."},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    if task.status != "Pending":
-        return Response(
-            {"message": "Task cannot be started."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        except Task.DoesNotExist:
+            return Response(
+                {"message": "Task not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        if task.status != "Pending":
+            return Response(
+                {"message": "Task cannot be started."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    task.status = "In Progress"
-    task.started_at = timezone.now()
-    task.save()
+        task.status = "In Progress"
+        task.started_at = timezone.now()
+        task.save()
     return Response(
         {
             "message": "Task started successfully.",
@@ -176,40 +185,42 @@ def reschedule_task(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def pause_task(request, pk):
-    try:
-        task = Task.objects.get(pk=pk, user=request.user)
-    except Task.DoesNotExist:
-        return Response(
-            {"error": "Task not found."},
-            status=status.HTTP_404_NOT_FOUND
-        )
+    # See start_task's comment -- same select_for_update()/atomic() race fix.
+    with transaction.atomic():
+        try:
+            task = Task.objects.select_for_update().get(pk=pk, user=request.user)
+        except Task.DoesNotExist:
+            return Response(
+                {"error": "Task not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-    if task.status == "Completed":
-        return Response(
-            {"error": "Completed tasks cannot be paused."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Completed":
+            return Response(
+                {"error": "Completed tasks cannot be paused."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if task.status == "Pending":
-        return Response(
-            {"error": "Start the task before pausing it."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Pending":
+            return Response(
+                {"error": "Start the task before pausing it."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if task.status == "Paused":
-        return Response(
-            {"message": "Task is already paused."},
-            status=status.HTTP_200_OK
-        )
+        if task.status == "Paused":
+            return Response(
+                {"message": "Task is already paused."},
+                status=status.HTTP_200_OK
+            )
 
-    if task.status == "Stopped":
-        return Response(
-            {"error": "Stopped tasks cannot be paused."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Stopped":
+            return Response(
+                {"error": "Stopped tasks cannot be paused."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    task.status = "Paused"
-    task.save()
+        task.status = "Paused"
+        task.save()
 
     return Response({
         "message": "Task paused successfully.",
@@ -220,40 +231,42 @@ def pause_task(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def resume_task(request, pk):
-    try:
-        task = Task.objects.get(pk=pk, user=request.user)
-    except Task.DoesNotExist:
-        return Response(
-            {"error": "Task not found."},
-            status=status.HTTP_404_NOT_FOUND
-        )
+    # See start_task's comment -- same select_for_update()/atomic() race fix.
+    with transaction.atomic():
+        try:
+            task = Task.objects.select_for_update().get(pk=pk, user=request.user)
+        except Task.DoesNotExist:
+            return Response(
+                {"error": "Task not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-    if task.status == "Pending":
-        return Response(
-            {"error": "Start the task before resuming it."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Pending":
+            return Response(
+                {"error": "Start the task before resuming it."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if task.status == "Completed":
-        return Response(
-            {"error": "Completed tasks cannot be resumed."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Completed":
+            return Response(
+                {"error": "Completed tasks cannot be resumed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if task.status == "Stopped":
-        return Response(
-            {"error": "Stopped tasks cannot be resumed."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Stopped":
+            return Response(
+                {"error": "Stopped tasks cannot be resumed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if task.status == "In Progress":
-        return Response(
-            {"message": "Task is already in progress."},
-            status=status.HTTP_200_OK
-        )
+        if task.status == "In Progress":
+            return Response(
+                {"message": "Task is already in progress."},
+                status=status.HTTP_200_OK
+            )
 
-    task.status = "In Progress"
-    task.save()
+        task.status = "In Progress"
+        task.save()
 
     return Response({
         "message": "Task resumed successfully.",
@@ -268,30 +281,32 @@ def stop_task(request, pk):
     separate actions (with separate statuses, Stopped vs Completed), but
     they meant the same thing to users -- this is now the only way to end
     an active task, so it does what /complete/ used to do."""
-    try:
-        task = Task.objects.get(pk=pk, user=request.user)
-    except Task.DoesNotExist:
-        return Response(
-            {"error": "Task not found."},
-            status=status.HTTP_404_NOT_FOUND
-        )
+    # See start_task's comment -- same select_for_update()/atomic() race fix.
+    with transaction.atomic():
+        try:
+            task = Task.objects.select_for_update().get(pk=pk, user=request.user)
+        except Task.DoesNotExist:
+            return Response(
+                {"error": "Task not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-    if task.status == "Completed":
-        return Response(
-            {"message": "Task is already completed."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Completed":
+            return Response(
+                {"message": "Task is already completed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if task.status == "Pending":
-        return Response(
-            {"message": "Start the task before completing it."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if task.status == "Pending":
+            return Response(
+                {"message": "Start the task before completing it."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    task.status = "Completed"
-    task.completed_at = timezone.now()
-    task.save()
-    cancel_pending_reminders(task)
+        task.status = "Completed"
+        task.completed_at = timezone.now()
+        task.save()
+        cancel_pending_reminders(task)
 
     return Response({
         "message": "Task completed successfully.",

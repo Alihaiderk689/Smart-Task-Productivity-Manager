@@ -5,8 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { copilotApi, getErrorMessage } from '@/services/api';
 import { Textarea } from '@/components/ui/textarea';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { MARKDOWN_COMPONENTS } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
+
+const MIN_HEIGHT = 42;
+const MAX_HEIGHT = 160;
 
 // Shared "ask the copilot" chat box -- same live Groq-backed chat used on
 // the full Admin Copilot page, embeddable anywhere an admin should be able
@@ -26,6 +30,7 @@ export default function CopilotQueryBox({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const messageListRef = useRef(null);
+  const textareaRef = useAutosizeTextarea(input, { minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT });
 
   useEffect(() => {
     copilotApi.dashboardSummary().then(({ data }) => setLlmConfigured(data.llm_configured)).catch(() => {});
@@ -116,13 +121,14 @@ export default function CopilotQueryBox({
       {llmConfigured ? (
         <form onSubmit={handleSend} className="flex items-end gap-2">
           <Textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={sending}
             rows={1}
-            className="flex-1 min-h-[42px] max-h-32 resize-none rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 py-2.5 focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+            className="flex-1 min-h-[42px] max-h-40 resize-none overflow-y-auto rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 py-2.5 focus-visible:ring-2 focus-visible:ring-indigo-500/30"
           />
           <button
             type="submit"

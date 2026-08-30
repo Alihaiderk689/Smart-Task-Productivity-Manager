@@ -2,7 +2,7 @@
 name: categories
 description: Per-user task tags, unique per (user, name), auto-seeded with 7 defaults on signup.
 app: categories
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 ## What it does
@@ -20,6 +20,16 @@ different users, never twice for one user.
   to call more than once). Check the signup flow in `users/views.py` if
   you need to find where this is actually invoked.
 - `backend/categories/views.py`, `urls.py`, `serializers.py`.
+
+## Pagination
+
+`CategoryListCreateView` uses `pagination_class = core.pagination.DefaultListPagination`
+(same as [tasks.md](tasks.md)'s list endpoint) — `GET /api/categories/`
+returns `{count, next, previous, results}`. Frontend adapts in
+`frontend/src/api/base44Client.js`'s `Category.list()`, which follows `next`
+until exhausted rather than just unwrapping page 1 — see
+[tasks.md](tasks.md)'s pagination section for why that distinction matters
+(a plain-page-1 unwrap silently truncates past `page_size`).
 
 ## Invariants / gotchas
 

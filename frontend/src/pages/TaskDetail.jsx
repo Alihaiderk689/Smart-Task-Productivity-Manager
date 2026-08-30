@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { base44 } from '../api/base44Client';
 import { toast } from 'sonner';
 import { ArrowLeft, Play, Pause, Square, CalendarClock, Pencil, Trash2, Calendar, Tag, Flag } from 'lucide-react';
-import { statusConfig, priorityConfig, getAvailableActions, formatDateTime, actionSuccessMessages } from '../lib/taskUtils';
+import { statusConfig, priorityConfig, getAvailableActions, formatDateTime } from '../lib/taskUtils';
 import TaskForm from '@/components/taskform';
+import { LoadingSpinner, ErrorState } from '@/components/query-state';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import DateTimePicker from '@/components/ui/datetime-picker';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
+import { useTaskQuery, useCategoriesQuery, useTaskActionMutation, useDeleteTaskMutation, taskKeys } from '@/hooks/use-tasks';
 
 // <input type="datetime-local"> needs "yyyy-MM-ddTHH:mm" in local time.
 function toDatetimeLocal(isoString) {
@@ -22,17 +25,27 @@ function toDatetimeLocal(isoString) {
 export default function TaskDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [task, setTask] = useState(null);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [newStartTime, setNewStartTime] = useState('');
   const [newEndTime, setNewEndTime] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  useEffect(() => { loadData(); }, [id]);
+  // Keyed on `id`, so navigating from one task to another is a brand new
+  // query -- no stale data from the previous task can ever leak through,
+  // and isLoading correctly re-arms per id with no manual bookkeeping.
+  const taskQuery = useTaskQuery(id);
+  const categoriesQuery = useCategoriesQuery();
+  const taskActionMutation = useTaskActionMutation();
+  const deleteTaskMutation = useDeleteTaskMutation();
+  const task = taskQuery.data;
+  const categories = categoriesQuery.data ?? [];
+  // taskQuery.error is really an axios error (has `.response`), not
+  // TanStack Query's default `Error`-typed generic.
+  const taskError = /** @type {any} */ (taskQuery.error);
+  const isNotFound = taskQuery.isError && taskError?.response?.status === 404;
 
   // Coming from an email reminder link (?reschedule=1): open the dialog
   // as soon as the task has loaded, then drop the param from the URL.
@@ -45,27 +58,11 @@ export default function TaskDetail() {
     }
   }, [task, searchParams, setSearchParams]);
 
-  const loadData = async () => {
-    try {
-      const [taskData, catData] = await Promise.all([
-        base44.entities.Task.get(id),
-        base44.entities.Category.list()
-      ]);
-      setTask(taskData);
-      setCategories(catData);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAction = async (action) => {
-    try {
-      await base44.entities.Task[action](task.id);
-      toast.success(actionSuccessMessages[action] || 'Task updated');
-      loadData();
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to update task');
-    }
+  const handleAction = (action) => {
+    taskActionMutation.mutate(
+      { action, taskId: task.id },
+      { onSuccess: () => queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) }) }
+    );
   };
 
   const handleReschedule = async () => {
@@ -76,36 +73,44 @@ export default function TaskDetail() {
       });
       toast.success('Task rescheduled');
       setRescheduleOpen(false);
-      loadData();
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to reschedule');
     }
   };
 
-  const handleDelete = async () => {
-    try {
-      await base44.entities.Task.delete(task.id);
-      toast.success('Task deleted');
-      navigate('/tasks');
-    } catch (err) {
-      toast.error('Failed to delete task');
-    }
+  const handleDelete = () => {
+    deleteTaskMutation.mutate(task.id, {
+      onSuccess: () => {
+        toast.success('Task deleted');
+        navigate('/tasks');
+      },
+      onError: () => toast.error('Failed to delete task'),
+    });
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
-      </div>
-    );
+  if (taskQuery.isLoading || categoriesQuery.isLoading) {
+    return <LoadingSpinner />;
   }
 
-  if (!task) {
+  if (isNotFound) {
     return (
       <div className="p-8 text-center">
         <p className="text-slate-500 dark:text-slate-400">Task not found.</p>
         <Link to="/tasks" className="text-indigo-600 dark:text-indigo-400 hover:underline">Back to tasks</Link>
       </div>
+    );
+  }
+
+  if (taskQuery.isError || categoriesQuery.isError) {
+    return (
+      <ErrorState
+        error={taskQuery.error || categoriesQuery.error}
+        onRetry={() => {
+          taskQuery.refetch();
+          categoriesQuery.refetch();
+        }}
+      />
     );
   }
 
@@ -209,7 +214,13 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      <TaskForm open={editOpen} onClose={() => setEditOpen(false)} task={task} categories={categories} onSaved={loadData} />
+      <TaskForm
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        task={task}
+        categories={categories}
+        onSaved={() => queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) })}
+      />
 
       <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
         <DialogContent className="sm:max-w-sm">

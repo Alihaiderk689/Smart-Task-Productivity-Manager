@@ -19,6 +19,16 @@ Celery Beat's role in production.
   [adminpanel.md](adminpanel.md)'s overview, not by `health`).
 - `.github/workflows/scheduled-tasks.yml` — the actual cron caller (repo
   root, not under `backend/`).
+- `backend/core/management/commands/seed_data.py` — dev-only: bulk-creates
+  fake users/categories/tasks (and, via `generate_reminders_for_task`,
+  reminders) for local scale testing. All seeded users use the reserved
+  `@example.test` domain so `python manage.py seed_data --clear` can find
+  and cascade-delete exactly what it created without touching real
+  accounts. `--users`/`--tasks` control volume (defaults 40/300). Uses
+  `bulk_create` throughout, so it bypasses `TaskSerializer`
+  validation/gibberish checks and won't trigger real emails (Reminder rows
+  are just DB writes — nothing sweeps them locally, see
+  [notifications-reminders.md](notifications-reminders.md)).
 
 ## Why this exists
 

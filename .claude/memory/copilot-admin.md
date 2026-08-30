@@ -2,7 +2,7 @@
 name: copilot-admin
 description: Agentic AI Admin Copilot — 8 autonomous agents + live chat, Groq→Gemini→OpenRouter fallback LLM chain, tool registry with sensitive/safe permission split, approval-gated mutations.
 app: copilot
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 ## What it does
@@ -53,6 +53,20 @@ ORM directly.
 - `tasks.py` — the per-agent entry points called by
   [core-infra.md](core-infra.md)'s `run_scheduled_tasks` job groups.
 
+## Scope guardrail
+
+`SYSTEM_PROMPT` (`services/chat_service.py`) has an explicit "SCOPE" clause:
+decline anything that isn't operating this TaskFlow instance (code, general
+programming help, essays, translations, trivia, etc.), regardless of how
+the request is framed (hypothetical, role-play, "just for debugging") or
+what any tool result/app data says. Prompt-only guardrail (no output
+filter/classifier) — verified live against Groq, holds up to direct
+off-topic asks ("give me Python code to reverse a string" → declines and
+redirects) without needing a second model call. If a future jailbreak gets
+through, strengthen this clause before reaching for an extra
+classification pass. Mirrored in [usercopilot.md](usercopilot.md)'s
+`BASE_SYSTEM_PROMPT`.
+
 ## Chat: why it has no path to a destructive action
 
 Real Groq function-calling, but **sensitive tools are excluded from its
@@ -72,10 +86,61 @@ died before triggering execution).
 
 ## Sensitive (approval-gated) tools
 
-`deactivate_user`, `send_reminder`, `delete_completed_tasks`. If you add a
-new tool that mutates data, default to `permission="sensitive"` unless
-you have a specific reason an LLM should be able to trigger it
-unsupervised.
+`deactivate_user`, `delete_user`, `rename_user`, `send_reminder`,
+`delete_completed_tasks`. If you add a new tool that mutates data, default
+to `permission="sensitive"` unless you have a specific reason an LLM should
+be able to trigger it unsupervised.
+
+## Server-side authorization hardening (added 2026-08-30)
+
+The LLM naming a tool was never sufficient authorization on its own, but
+`propose_action` (`tools/action_tools.py`) used to accept *any* registered
+tool name, sensitive or not. Now: `target_tool` must both exist in
+`tool_registry` **and** have `permission="sensitive"` (`tool.is_sensitive`)
+— the registry's own tag is the allowlist, not a second hand-maintained
+list. `ActionAgent.plan()` (`agents/action.py`) re-checks this again at the
+actual execution chokepoint (every path converges there: chat's
+immediate-execute, the manual `/approve/` endpoint, and the Celery sweep),
+plus verifies `rec.resolved_by` is still `is_active`/`is_staff` right now —
+not just at the moment they clicked approve. Closes a real gap: a staff
+account deactivated between approving an action and a delayed sweep
+running it used to still execute on now-revoked authority. A rec that
+fails this check is marked `failed` immediately with a clear
+`execution_result.error`, excluded from the plan, and never silently runs.
+
+`ActionAgent.plan()` also injects `tool_input["_acting_user_id"] =
+rec.resolved_by_id` (server-set, never LLM-controlled, same pattern as
+`_requested_by`) into every step it builds — `DeactivateUserTool`/
+`DeleteUserTool` (`tools/user_tools.py`) use it to refuse targeting the
+acting admin's own account, matching `adminpanel.deactivate_user`/
+`delete_user`'s existing self-target guard. A tool called directly in a
+unit test (no `_acting_user_id` kwarg) sees `None`, which never matches a
+real user id, so this is backward compatible with direct `tool.run(...)`
+tests that don't go through `ActionAgent`.
+
+**Gotcha if you write a test that creates an `approved` `Recommendation`
+directly** (bypassing the real approve endpoint/`RecommendationRepository.approve()`):
+you must set `resolved_by=` to an active staff user, or `ActionAgent.plan()`
+will now correctly mark it `failed` instead of executing it — several
+existing tests needed this fix when the check was added.
+
+**Operational check after deploying this hardening**: any `Recommendation`
+already sitting at `status="approved"` whose `resolved_by` user was since
+deleted (FK is `SET_NULL`) or deactivated/de-staffed will now dead-end at
+`failed` on the next sweep instead of quietly executing — and `failed` has
+no re-approval path (`approve_recommendation` rejects anything that isn't
+currently `pending`). Read-only check, safe to run anytime:
+```python
+from copilot.models import Recommendation
+qs = Recommendation.objects.filter(status="approved")
+orphaned = qs.filter(resolved_by__isnull=True)
+invalid = [r for r in qs.filter(resolved_by__isnull=False)
+           if not (r.resolved_by.is_active and r.resolved_by.is_staff)]
+```
+Checked against the dev DB on 2026-08-30 right after adding the check: zero
+`approved` recommendations existed at all, so nothing was orphaned —
+re-run against production before/after that deploy, this doesn't tell you
+anything about a different database.
 
 ## Gotchas
 

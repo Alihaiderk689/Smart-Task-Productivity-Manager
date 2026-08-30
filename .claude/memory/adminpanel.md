@@ -2,7 +2,7 @@
 name: adminpanel
 description: Staff-only oversight — user/task management across all accounts, CSV export, manual reminder triggers. IsAdminUser-gated throughout.
 app: adminpanel
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 ## What it does
@@ -53,6 +53,10 @@ exception, gated by `IsAdminUser` on every view).
   goes through a `Recommendation` first. Same underlying effect, two
   different trigger paths; don't conflate them when debugging "why was
   this user deactivated."
+- This file's self-target guard (`target.id == request.user.id` →
+  rejected) is now mirrored on the copilot side too — see
+  [copilot-admin.md](copilot-admin.md)'s "Server-side authorization
+  hardening" section. Keep the two in sync if either guard changes.
 
 ## Touches / related
 
