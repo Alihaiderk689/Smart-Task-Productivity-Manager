@@ -1,3 +1,4 @@
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from rest_framework.decorators import api_view, permission_classes
@@ -11,17 +12,16 @@ from tasks.serializers import TaskSerializer
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard_summary(request):
-    user = request.user
-
-    tasks = Task.objects.filter(user=user)
-
-    data = {
-        "total_tasks": tasks.count(),
-        "pending_tasks": tasks.filter(status="Pending").count(),
-        "in_progress_tasks": tasks.filter(status="In Progress").count(),
-        "completed_tasks": tasks.filter(status="Completed").count(),
-        "missed_tasks": tasks.filter(status="Missed").count(),
-    }
+    # One aggregate query instead of 5 sequential .count() calls -- same
+    # pattern already used correctly in adminpanel/views.py::admin_overview.
+    # See SCALABILITY_AUDIT.md's H2.
+    data = Task.objects.filter(user=request.user).aggregate(
+        total_tasks=Count("id"),
+        pending_tasks=Count("id", filter=Q(status="Pending")),
+        in_progress_tasks=Count("id", filter=Q(status="In Progress")),
+        completed_tasks=Count("id", filter=Q(status="Completed")),
+        missed_tasks=Count("id", filter=Q(status="Missed")),
+    )
 
     return Response(data)
 

@@ -1,11 +1,15 @@
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
 import pytest
 from django.contrib.auth.models import User
+from django.db import connections
 from groq import RateLimitError
 from rest_framework import status
+from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from copilot.agents.action import ActionAgent
 from copilot.agents.analytics import AnalyticsAgent
@@ -1733,6 +1737,45 @@ def test_approve_recommendation_endpoint_rejects_already_resolved(staff_client):
     rec = Recommendation.objects.create(title="Alert", description="", category="system", status="executed")
     response = staff_client.post(f"/api/copilot/recommendations/{rec.id}/approve/")
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_approve_cannot_double_approve(staff_user):
+    # See SCALABILITY_AUDIT.md's H6: without a row lock, two concurrent
+    # "Approve" clicks can both read status="pending" and both proceed --
+    # for a recommendation with an action_payload, that means ActionAgent
+    # could run a sensitive tool twice. select_for_update()/atomic() in
+    # approve_recommendation (copilot/views.py) makes the two requests
+    # serialize, so only one can ever see status="pending". Needs a real
+    # second DB connection (transaction=True), like tasks/test_tasks.py's
+    # equivalent race test.
+    rec = Recommendation.objects.create(title="Alert", description="", category="system", status="pending")
+
+    def make_client():
+        client = APIClient()
+        refresh = RefreshToken.for_user(staff_user)
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+        return client
+
+    barrier = threading.Barrier(2)
+    results = []
+
+    def call():
+        client = make_client()
+        barrier.wait()
+        response = client.post(f"/api/copilot/recommendations/{rec.id}/approve/")
+        results.append(response.status_code)
+        connections.close_all()
+
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sorted(results) == [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST]
+    rec.refresh_from_db()
+    assert rec.status == "approved"
 
 
 @pytest.mark.django_db

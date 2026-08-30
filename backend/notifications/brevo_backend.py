@@ -19,6 +19,15 @@ from django.core.mail.backends.base import BaseEmailBackend
 
 BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
 
+# Module-level, reused across every send in a process -- a plain
+# requests.post() per call opens a fresh TCP+TLS connection each time,
+# which adds up when a reminder sweep sends many emails in one pass (see
+# SCALABILITY_AUDIT.md's H5). A Session keeps the underlying connection
+# pool alive (urllib3's default HTTPAdapter) so sequential sends to the
+# same host reuse it. No change to what's sent or how errors are
+# surfaced -- connection reuse only.
+_session = requests.Session()
+
 
 class BrevoAPIError(Exception):
     """Raised for any failure sending through Brevo's API -- a non-2xx
@@ -83,7 +92,7 @@ class BrevoEmailBackend(BaseEmailBackend):
             payload["replyTo"] = _address(message.reply_to[0])
 
         try:
-            response = requests.post(
+            response = _session.post(
                 BREVO_SEND_URL,
                 json=payload,
                 headers={
