@@ -57,11 +57,16 @@ here, not nested repos). Remote: `github.com/Alihaiderk689/Smart-Task-Productivi
 
 ```bash
 # Backend -- venv lives at backend/.venv (not top-level, not system python)
+# Must be port 8001, not Django's default 8000: frontend/vite.config.js's
+# dev proxy forwards /api to 127.0.0.1:8001 (inherited from
+# docker-compose.yml's "8001:8000" port mapping), so a bare-metal
+# runserver on 8000 leaves the frontend's /api calls hitting nothing --
+# Vite's proxy returns a bare 500 with no useful body in that case.
 cd backend && source .venv/bin/activate
-python manage.py runserver 8000
+python manage.py runserver 8001
 
 # Frontend
-cd frontend && npm run dev          # http://localhost:5173
+cd frontend && npm run dev          # http://localhost:5173 (or next free port -- 5174, 5175, ... if occupied)
 
 # Celery worker + Beat (needed for reminder emails AND every copilot agent's
 # scheduled sweep -- see config/celery.py's beat_schedule)

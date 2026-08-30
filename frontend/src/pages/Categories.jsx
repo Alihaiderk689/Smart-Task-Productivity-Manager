@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '../api/base44Client';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, CheckSquare } from 'lucide-react';
@@ -7,31 +8,46 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LoadingSpinner, ErrorState } from '@/components/query-state';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
+import { useTasksQuery, useCategoriesQuery, categoryKeys } from '@/hooks/use-tasks';
 
 export default function Categories() {
-  const [categories, setCategories] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const categoriesQuery = useCategoriesQuery();
+  const tasksQuery = useTasksQuery();
+  const categories = categoriesQuery.data ?? [];
+  const tasks = tasksQuery.data ?? [];
+
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleteCat, setDeleteCat] = useState(null);
   const [formData, setFormData] = useState({ name: '' });
 
-  useEffect(() => { loadData(); }, []);
+  const invalidateCategories = () => queryClient.invalidateQueries({ queryKey: categoryKeys.all });
 
-  const loadData = async () => {
-    try {
-      const [catData, taskData] = await Promise.all([
-        base44.entities.Category.list(),
-        base44.entities.Task.list()
-      ]);
-      setCategories(catData);
-      setTasks(taskData);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const saveMutation = useMutation(/** @type {any} */ ({
+    mutationFn: () =>
+      editing
+        ? base44.entities.Category.update(editing.id, formData)
+        : base44.entities.Category.create(formData),
+    onSuccess: () => {
+      toast.success(editing ? 'Category updated' : 'Category created');
+      setFormOpen(false);
+      invalidateCategories();
+    },
+    onError: (err) => toast.error(err.response?.data?.name?.[0] || 'Something went wrong'),
+  }));
+
+  const deleteMutation = useMutation({
+    mutationFn: (categoryId) => base44.entities.Category.delete(categoryId),
+    onSuccess: () => {
+      toast.success('Category deleted');
+      setDeleteCat(null);
+      invalidateCategories();
+    },
+    onError: () => toast.error('Failed to delete category'),
+  });
 
   const openCreate = () => {
     setEditing(null);
@@ -45,41 +61,30 @@ export default function Categories() {
     setFormOpen(true);
   };
 
-  const handleSave = async (e) => {
+  const handleSave = (e) => {
     e.preventDefault();
     if (!formData.name.trim()) return;
-    try {
-      if (editing) {
-        await base44.entities.Category.update(editing.id, formData);
-        toast.success('Category updated');
-      } else {
-        await base44.entities.Category.create(formData);
-        toast.success('Category created');
-      }
-      setFormOpen(false);
-      loadData();
-    } catch (err) {
-      toast.error(err.response?.data?.name?.[0] || 'Something went wrong');
-    }
+    saveMutation.mutate();
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deleteCat) return;
-    try {
-      await base44.entities.Category.delete(deleteCat.id);
-      toast.success('Category deleted');
-      setDeleteCat(null);
-      loadData();
-    } catch (err) {
-      toast.error('Failed to delete category');
-    }
+    deleteMutation.mutate(deleteCat.id);
   };
 
-  if (loading) {
+  if (categoriesQuery.isLoading || tasksQuery.isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  if (categoriesQuery.isError || tasksQuery.isError) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
-      </div>
+      <ErrorState
+        error={categoriesQuery.error || tasksQuery.error}
+        onRetry={() => {
+          categoriesQuery.refetch();
+          tasksQuery.refetch();
+        }}
+      />
     );
   }
 

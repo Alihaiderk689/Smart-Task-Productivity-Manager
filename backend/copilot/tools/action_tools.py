@@ -68,6 +68,18 @@ class ProposeActionTool(BaseTool):
             return ToolResult(success=False, error="'title' and 'tool' are required.")
         if target_tool not in tool_registry:
             return ToolResult(success=False, error=f"Unknown tool {target_tool!r} -- cannot propose an action for a tool that doesn't exist.")
+        # The LLM's say-so is never the authorization mechanism (see
+        # SECURITY.md's admin-copilot section): propose_action only exists
+        # to run data-changing actions, so only tools the registry itself
+        # tags permission="sensitive" may be targeted this way -- a safe/
+        # read-only tool, or a future tool that forgets to declare its own
+        # sensitivity, can't be routed through this approval-audit pipeline
+        # regardless of what the model claims about it in chat.
+        if not tool_registry.get(target_tool).is_sensitive:
+            return ToolResult(
+                success=False,
+                error=f"{target_tool!r} is not a sensitive/data-changing tool -- propose_action only runs sensitive actions.",
+            )
         if category not in _CATEGORY_CHOICES:
             category = "system"
         if risk not in _RISK_CHOICES:

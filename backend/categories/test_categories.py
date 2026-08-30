@@ -30,8 +30,8 @@ def test_list_categories(auth_client, test_user, category_factory):
     
     response = auth_client.get("/api/categories/")
     assert response.status_code == status.HTTP_200_OK
-    assert len(response.data) == 2
-    names = [c["name"] for c in response.data]
+    assert response.data["count"] == 2
+    names = [c["name"] for c in response.data["results"]]
     assert "Personal" in names
     assert "Work" in names
     assert "Other User Category" not in names
