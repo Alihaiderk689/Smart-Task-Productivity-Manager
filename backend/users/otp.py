@@ -2,6 +2,7 @@ import secrets
 from datetime import timedelta
 
 from django.contrib.auth.hashers import check_password, make_password
+from django.db import transaction
 from django.utils import timezone
 
 from .models import EmailOTP
@@ -29,30 +30,37 @@ def issue_otp(user, *, respect_cooldown=False):
     is currently blocked -- either the normal RESEND_COOLDOWN between sends,
     or MAX_SENDS_PER_CYCLE has been reached and RESEND_LOCKOUT hasn't
     elapsed yet (used by "resend")."""
-    otp = EmailOTP.objects.filter(user=user).first()
-    now = timezone.now()
+    # select_for_update() + atomic() closes a TOCTOU race: without a row
+    # lock, two near-simultaneous "Resend code" taps (plausible on a flaky
+    # mobile connection) can both read send_count/last_sent_at before
+    # either write, so both pass the cooldown/cap check and both send --
+    # see SCALABILITY_AUDIT.md's H6. Only applies once a row already
+    # exists (the initial send has nothing to race against here).
+    with transaction.atomic():
+        otp = EmailOTP.objects.select_for_update().filter(user=user).first()
+        now = timezone.now()
 
-    if otp is not None and now - otp.last_sent_at >= RESEND_LOCKOUT:
-        # Lockout window has fully elapsed since the last send -- start a
-        # fresh cycle instead of staying permanently capped.
-        otp.send_count = 0
+        if otp is not None and now - otp.last_sent_at >= RESEND_LOCKOUT:
+            # Lockout window has fully elapsed since the last send -- start a
+            # fresh cycle instead of staying permanently capped.
+            otp.send_count = 0
 
-    if respect_cooldown and otp is not None:
-        if otp.send_count >= MAX_SENDS_PER_CYCLE:
-            return None
-        if now - otp.last_sent_at < RESEND_COOLDOWN:
-            return None
+        if respect_cooldown and otp is not None:
+            if otp.send_count >= MAX_SENDS_PER_CYCLE:
+                return None
+            if now - otp.last_sent_at < RESEND_COOLDOWN:
+                return None
 
-    if otp is None:
-        otp = EmailOTP(user=user)
+        if otp is None:
+            otp = EmailOTP(user=user)
 
-    code = generate_otp_code()
-    otp.code_hash = make_password(code)
-    otp.expires_at = now + OTP_TTL
-    otp.attempts = 0
-    otp.send_count += 1
-    otp.save()  # last_sent_at is auto_now, stamped here
-    return code
+        code = generate_otp_code()
+        otp.code_hash = make_password(code)
+        otp.expires_at = now + OTP_TTL
+        otp.attempts = 0
+        otp.send_count += 1
+        otp.save()  # last_sent_at is auto_now, stamped here
+        return code
 
 
 def verify_otp(user, code):

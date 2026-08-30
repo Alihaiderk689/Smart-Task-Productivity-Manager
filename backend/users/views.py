@@ -194,14 +194,28 @@ def google_login(request):
     if user is None:
         # password=None gives the account an unusable password -- they can
         # only ever sign in via Google unless they later set one.
-        user = User.objects.create_user(
-            username=email,
-            email=email,
-            first_name=payload.get("given_name", ""),
-            password=None,
-            is_active=True,  # Google already verified this email address
-        )
-        create_default_categories(user)
+        try:
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                first_name=payload.get("given_name", ""),
+                password=None,
+                is_active=True,  # Google already verified this email address
+            )
+        except IntegrityError:
+            # Race: two concurrent first-time "Continue with Google" clicks
+            # for the same brand-new account can both pass the `user is
+            # None` check above -- see SCALABILITY_AUDIT.md's H6. Mirrors
+            # signup's existing guard, but here the graceful outcome is to
+            # sign the caller into the account the other request just
+            # created (a login retry), not to reject this request.
+            logger.warning(
+                "google_login race: email=%r already existed by the time it was created",
+                email,
+            )
+            user = User.objects.filter(email__iexact=email).first()
+        else:
+            create_default_categories(user)
     elif not user.is_active:
         # They'd signed up with email/password but never verified -- Google
         # just proved they own the address, so unblock the account. The
