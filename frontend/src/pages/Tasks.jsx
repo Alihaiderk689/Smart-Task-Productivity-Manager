@@ -1,19 +1,26 @@
 import { useState, useEffect, useMemo } from 'react';
-import { base44 } from '../api/base44Client';
+import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import TaskCard from '@/components/taskcard';
 import TaskSeriesCard from '@/components/taskseriescard';
 import TaskForm from '@/components/taskform';
-import { actionSuccessMessages, groupTasksForDisplay } from '@/lib/taskUtils';
+import { LoadingSpinner, ErrorState } from '@/components/query-state';
+import { groupTasksForDisplay } from '@/lib/taskUtils';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
+import { useTasksQuery, useCategoriesQuery, useTaskActionMutation, useDeleteTaskMutation, taskKeys } from '@/hooks/use-tasks';
 
 const PAGE_SIZE = 9;
 
 export default function Tasks() {
-  const [tasks, setTasks] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const tasksQuery = useTasksQuery();
+  const categoriesQuery = useCategoriesQuery();
+  const taskActionMutation = useTaskActionMutation();
+  const deleteTaskMutation = useDeleteTaskMutation();
+  const tasks = tasksQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
+
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -25,36 +32,15 @@ export default function Tasks() {
   const [deleteTask, setDeleteTask] = useState(null);
   const [deleteSeries, setDeleteSeries] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
-
-  const loadData = async () => {
-    try {
-      const [taskData, catData] = await Promise.all([
-        base44.entities.Task.list(),
-        base44.entities.Category.list()
-      ]);
-      setTasks(taskData);
-      setCategories(catData);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAction = async (action, task) => {
-    try {
-      await base44.entities.Task[action](task.id);
-      toast.success(actionSuccessMessages[action] || 'Task updated');
-      loadData();
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to update task');
-    }
+  const handleAction = (action, task) => {
+    taskActionMutation.mutate({ action, taskId: task.id });
   };
 
   const handleTaskSaved = () => {
     if (!editingTask) {
       setCurrentPage(1);
     }
-    loadData();
+    queryClient.invalidateQueries({ queryKey: taskKeys.all });
   };
 
   const handleEdit = (task) => {
@@ -62,25 +48,23 @@ export default function Tasks() {
     setFormOpen(true);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deleteTask) return;
-    try {
-      await base44.entities.Task.delete(deleteTask.id);
-      toast.success('Task deleted');
-      setDeleteTask(null);
-      loadData();
-    } catch (err) {
-      toast.error('Failed to delete task');
-    }
+    deleteTaskMutation.mutate(deleteTask.id, {
+      onSuccess: () => {
+        toast.success('Task deleted');
+        setDeleteTask(null);
+      },
+      onError: () => toast.error('Failed to delete task'),
+    });
   };
 
   const handleDeleteSeries = async () => {
     if (!deleteSeries) return;
     try {
-      await Promise.all(deleteSeries.map(t => base44.entities.Task.delete(t.id)));
+      await Promise.all(deleteSeries.map(t => deleteTaskMutation.mutateAsync(t.id)));
       toast.success(`${deleteSeries.length} tasks deleted`);
       setDeleteSeries(null);
-      loadData();
     } catch (err) {
       toast.error('Failed to delete the series');
     }
@@ -132,11 +116,19 @@ export default function Tasks() {
 
   const hasActiveFilters = statusFilter !== 'all' || categoryFilter !== 'all' || priorityFilter !== 'all' || dueDateFilter !== 'all' || search;
 
-  if (loading) {
+  if (tasksQuery.isLoading || categoriesQuery.isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  if (tasksQuery.isError || categoriesQuery.isError) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
-      </div>
+      <ErrorState
+        error={tasksQuery.error || categoriesQuery.error}
+        onRetry={() => {
+          tasksQuery.refetch();
+          categoriesQuery.refetch();
+        }}
+      />
     );
   }
 

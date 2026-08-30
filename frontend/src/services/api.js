@@ -291,6 +291,15 @@ export const categoriesApi = {
 	},
 };
 
+// Follows a DRF PageNumberPagination `next` link (an absolute URL, as
+// returned by the backend) through the same authenticated apiClient
+// instance/interceptors -- lets a caller fetch every page of a paginated
+// list endpoint (see core/pagination.py's DefaultListPagination) instead
+// of silently stopping at page 1. Used by base44Client.js.
+export function fetchPage(url) {
+	return apiClient.get(url);
+}
+
 export const dashboardApi = {
 	summary() {
 		return apiClient.get("/dashboard/summary/");

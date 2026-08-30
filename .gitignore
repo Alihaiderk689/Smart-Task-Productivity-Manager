@@ -75,3 +75,6 @@ Thumbs.db
 # Secrets (common filenames)
 credentials.json
 secret_key.txt
+
+# Claude Code session-local memory/config -- not meant for the repo
+.claude/

@@ -138,6 +138,12 @@ class DeactivateUserTool(BaseTool):
         except (User.DoesNotExist, ValueError, TypeError):
             return ToolResult(success=False, error=f"No user with id {user_id!r}.")
 
+        # `_acting_user_id` is injected server-side by ActionAgent.plan()
+        # from the approving admin's identity, never LLM-controlled --
+        # matches adminpanel.deactivate_user's own self-target guard, so an
+        # admin can't be talked into deactivating their own account via chat.
+        if kwargs.get("_acting_user_id") == user.id:
+            return ToolResult(success=False, error="You cannot deactivate your own account.")
         if user.is_superuser:
             return ToolResult(success=False, error="Superuser accounts cannot be deactivated here.")
         if not user.is_active:
@@ -168,6 +174,10 @@ class DeleteUserTool(BaseTool):
         except (User.DoesNotExist, ValueError, TypeError):
             return ToolResult(success=False, error=f"No user with id {user_id!r}.")
 
+        # See DeactivateUserTool.run() -- same server-injected self-target
+        # guard, matching adminpanel.delete_user's own protection.
+        if kwargs.get("_acting_user_id") == user.id:
+            return ToolResult(success=False, error="You cannot delete your own account.")
         if user.is_staff or user.is_superuser:
             return ToolResult(success=False, error="Staff/superuser accounts cannot be deleted here -- use the Django admin site for that.")
 

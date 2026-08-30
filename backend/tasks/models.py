@@ -89,6 +89,16 @@ class Task(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            # (user, status) -- the dominant query shape across
+            # dashboard/analytics/adminpanel (a user's tasks filtered by
+            # status). start_time/end_time back the today/upcoming/missed
+            # range filters and ordering in dashboard/views.py. See
+            # SCALABILITY_AUDIT.md's H3.
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["start_time"]),
+            models.Index(fields=["end_time"]),
+        ]
 
-def __str__(self):
-    return self.title
+    def __str__(self):
+        return self.title

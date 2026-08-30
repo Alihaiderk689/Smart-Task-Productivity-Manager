@@ -1285,12 +1285,13 @@ def test_recommendation_agent_summarizes_pending_by_risk():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_action_agent_executes_approved_recommendation(test_user):
+def test_action_agent_executes_approved_recommendation(test_user, staff_user):
     rec = Recommendation.objects.create(
         title="Deactivate dormant account",
         description="",
         category="users",
         status="approved",
+        resolved_by=staff_user,
         action_payload={"tool": "deactivate_user", "input": {"user_id": test_user.id}},
     )
     run = ActionAgent().run(trigger="manual")
@@ -1302,12 +1303,13 @@ def test_action_agent_executes_approved_recommendation(test_user):
 
 
 @pytest.mark.django_db
-def test_action_agent_marks_failed_when_tool_fails():
+def test_action_agent_marks_failed_when_tool_fails(staff_user):
     rec = Recommendation.objects.create(
         title="Deactivate a user that doesn't exist",
         description="",
         category="users",
         status="approved",
+        resolved_by=staff_user,
         action_payload={"tool": "deactivate_user", "input": {"user_id": 999999}},
     )
     run = ActionAgent().run(trigger="manual")
@@ -1327,13 +1329,74 @@ def test_action_agent_ignores_pending_and_rejected():
 
 
 @pytest.mark.django_db
-def test_action_agent_scoped_to_only_ids(test_user, other_user):
+def test_action_agent_refuses_when_approver_is_no_longer_active_staff(test_user, staff_user):
+    # Closes a real gap: resolved_by is captured once, at approval time --
+    # without a re-check here, a staff account deactivated *after* approving
+    # an action but *before* a delayed sweep runs it would still execute on
+    # now-revoked authority.
+    staff_user.is_active = False
+    staff_user.save(update_fields=["is_active"])
+    rec = Recommendation.objects.create(
+        title="Deactivate dormant account", description="", category="users", status="approved",
+        resolved_by=staff_user,
+        action_payload={"tool": "deactivate_user", "input": {"user_id": test_user.id}},
+    )
+    run = ActionAgent().run(trigger="manual")
+    assert run.status == "completed"
+    rec.refresh_from_db()
+    assert rec.status == "failed"
+    assert "active staff" in rec.execution_result["error"]
+    test_user.refresh_from_db()
+    assert test_user.is_active is True  # never touched
+
+
+@pytest.mark.django_db
+def test_action_agent_refuses_a_non_sensitive_tool_even_if_a_recommendation_names_one(staff_user):
+    # Defense in depth for the same reason as
+    # test_propose_action_tool_rejects_a_non_sensitive_tool -- re-checked
+    # here too since ActionAgent is the actual execution chokepoint for
+    # every path (chat, manual approve, and the sweep), not just chat's.
+    rec = Recommendation.objects.create(
+        title="Get stats via the action pipeline", description="", category="system", status="approved",
+        resolved_by=staff_user,
+        action_payload={"tool": "get_task_stats", "input": {}},
+    )
+    run = ActionAgent().run(trigger="manual")
+    assert run.status == "completed"
+    rec.refresh_from_db()
+    assert rec.status == "failed"
+
+
+@pytest.mark.django_db
+def test_action_agent_deactivate_user_self_target_guard(staff_user):
+    # Mirrors adminpanel.deactivate_user's own self-target guard --
+    # _acting_user_id is injected server-side by ActionAgent.plan() from the
+    # approving admin's identity, so an admin can't be talked into
+    # deactivating their own account via chat.
+    rec = Recommendation.objects.create(
+        title="Deactivate my own account", description="", category="users", status="approved",
+        resolved_by=staff_user,
+        action_payload={"tool": "deactivate_user", "input": {"user_id": staff_user.id}},
+    )
+    run = ActionAgent().run(trigger="manual")
+    assert run.status == "completed"
+    rec.refresh_from_db()
+    assert rec.status == "failed"
+    assert "own account" in rec.execution_result["error"]
+    staff_user.refresh_from_db()
+    assert staff_user.is_active is True
+
+
+@pytest.mark.django_db
+def test_action_agent_scoped_to_only_ids(test_user, other_user, staff_user):
     rec1 = Recommendation.objects.create(
         title="Deactivate user 1", description="", category="users", status="approved",
+        resolved_by=staff_user,
         action_payload={"tool": "deactivate_user", "input": {"user_id": test_user.id}},
     )
     rec2 = Recommendation.objects.create(
         title="Deactivate user 2", description="", category="users", status="approved",
+        resolved_by=staff_user,
         action_payload={"tool": "deactivate_user", "input": {"user_id": other_user.id}},
     )
     ActionAgent(only_ids=[rec1.id]).run(trigger="manual")
@@ -1433,6 +1496,21 @@ def test_propose_action_tool_rejects_unknown_tool():
 
 
 @pytest.mark.django_db
+def test_propose_action_tool_rejects_a_non_sensitive_tool():
+    # propose_action only exists to run data-changing actions -- a real,
+    # registered but safe/read-only tool must still be refused, not just an
+    # unknown name. The LLM naming a tool is never sufficient authorization
+    # on its own (see SECURITY.md's admin-copilot section).
+    result = ProposeActionTool().run(
+        title="Get stats via the action pipeline", description="", tool="get_task_stats",
+        tool_input={}, category="system",
+    )
+    assert result.success is False
+    assert "sensitive" in result.error
+    assert Recommendation.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_propose_action_tool_requires_title_and_tool():
     result = ProposeActionTool().run(title="", description="", tool="", tool_input={}, category="system")
     assert result.success is False
@@ -1505,10 +1583,12 @@ def test_chat_service_refuses_sensitive_tool_even_if_requested(test_user):
 
 
 @pytest.mark.django_db
-def test_chat_service_propose_action_executes_immediately_for_the_admin_chatting(test_user, other_user):
+def test_chat_service_propose_action_executes_immediately_for_the_admin_chatting(staff_user, other_user):
     # Chat's propose_action runs on behalf of whichever admin is chatting
-    # (this endpoint is IsAdminUser-gated), so it executes right away rather
-    # than sitting as a pending recommendation for someone else to approve.
+    # (this endpoint is IsAdminUser-gated, so the real caller is always
+    # staff -- ActionAgent re-verifies that at execution time too), so it
+    # executes right away rather than sitting as a pending recommendation
+    # for someone else to approve.
     call = SimpleNamespace(
         id="call_1",
         function=SimpleNamespace(
@@ -1528,19 +1608,19 @@ def test_chat_service_propose_action_executes_immediately_for_the_admin_chatting
     )
     llm = GroqClient(api_key="fake-key")
     with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
-        result = ChatService(llm=llm).send(user=test_user, message="deactivate that user, they're stale")
+        result = ChatService(llm=llm).send(user=staff_user, message="deactivate that user, they're stale")
 
     assert result["proposed_recommendation"] is not None
     rec = Recommendation.objects.get(id=result["proposed_recommendation"]["recommendation_id"])
     assert rec.status == "executed"
-    assert rec.resolved_by == test_user
+    assert rec.resolved_by == staff_user
     assert rec.action_payload == {"tool": "deactivate_user", "input": {"user_id": other_user.id}}
     other_user.refresh_from_db()
     assert other_user.is_active is False
 
 
 @pytest.mark.django_db
-def test_chat_service_propose_action_reports_execution_failure(test_user):
+def test_chat_service_propose_action_reports_execution_failure(staff_user):
     call = SimpleNamespace(
         id="call_1",
         function=SimpleNamespace(
@@ -1560,7 +1640,7 @@ def test_chat_service_propose_action_reports_execution_failure(test_user):
     )
     llm = GroqClient(api_key="fake-key")
     with patch.object(GroqClient, "_get_client", return_value=fake_inner_client):
-        result = ChatService(llm=llm).send(user=test_user, message="deactivate user 999999")
+        result = ChatService(llm=llm).send(user=staff_user, message="deactivate user 999999")
 
     rec = Recommendation.objects.get(id=result["proposed_recommendation"]["recommendation_id"])
     assert rec.status == "failed"

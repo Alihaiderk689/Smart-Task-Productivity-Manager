@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Toaster } from "./components/ui/sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from './lib/query-client.jsx'
@@ -25,11 +26,21 @@ import TaskDetail from './pages/TaskDetail';
 import Categories from './pages/Categories';
 import CalendarPage from './pages/Calendar';
 import Profile from './pages/Profile';
-import Admin from './pages/Admin';
-import AdminTasks from './pages/AdminTasks';
-import AdminProfile from './pages/AdminProfile';
-import AdminCopilot from './pages/AdminCopilot';
-import AdminEvaluation from './pages/AdminEvaluation';
+// Admin/copilot pages are staff-only (RoleRoute allow="staff" below) and
+// noticeably heavy (copilot chat UI, charts, evaluation dashboard) -- lazy
+// loading them keeps that weight out of the bundle every regular user
+// downloads, without changing behavior for either role.
+const Admin = lazy(() => import('./pages/Admin'));
+const AdminTasks = lazy(() => import('./pages/AdminTasks'));
+const AdminProfile = lazy(() => import('./pages/AdminProfile'));
+const AdminCopilot = lazy(() => import('./pages/AdminCopilot'));
+const AdminEvaluation = lazy(() => import('./pages/AdminEvaluation'));
+
+const RouteFallback = () => (
+  <div className="fixed inset-0 flex items-center justify-center bg-background">
+    <div className="w-8 h-8 border-4 border-muted border-t-foreground rounded-full animate-spin"></div>
+  </div>
+);
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -67,11 +78,26 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute />}>
         <Route element={<RoleRoute allow="staff" />}>
           <Route element={<AdminLayout />}>
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/admin/tasks" element={<AdminTasks />} />
-            <Route path="/admin/copilot" element={<AdminCopilot />} />
-            <Route path="/admin/evaluation" element={<AdminEvaluation />} />
-            <Route path="/admin/profile" element={<AdminProfile />} />
+            <Route
+              path="/admin"
+              element={<Suspense fallback={<RouteFallback />}><Admin /></Suspense>}
+            />
+            <Route
+              path="/admin/tasks"
+              element={<Suspense fallback={<RouteFallback />}><AdminTasks /></Suspense>}
+            />
+            <Route
+              path="/admin/copilot"
+              element={<Suspense fallback={<RouteFallback />}><AdminCopilot /></Suspense>}
+            />
+            <Route
+              path="/admin/evaluation"
+              element={<Suspense fallback={<RouteFallback />}><AdminEvaluation /></Suspense>}
+            />
+            <Route
+              path="/admin/profile"
+              element={<Suspense fallback={<RouteFallback />}><AdminProfile /></Suspense>}
+            />
           </Route>
         </Route>
         <Route element={<RoleRoute allow="user" />}>

@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { base44 } from '../api/base44Client';
+import { useQueryClient } from '@tanstack/react-query';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import { CheckCircle2, Clock, PlayCircle, ListTodo, Plus, ArrowRight, AlertTriangle, CalendarClock, Bell } from 'lucide-react';
 import StatCard from '@/components/statcard';
 import TaskForm from '@/components/taskform';
 import CopilotButton from '@/components/CopilotButton';
 import CopilotChat from '@/components/CopilotChat';
+import { LoadingSpinner, ErrorState } from '@/components/query-state';
 import { statusConfig, colorMap, priorityConfig, getCategoryColor } from '../lib/taskUtils';
 import { useTheme } from '@/context/ThemeContext';
+import { useTasksQuery, useCategoriesQuery, taskKeys } from '@/hooks/use-tasks';
 
 export default function Home() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { isDark } = useTheme();
   const chartGridColor = isDark ? '#1e293b' : '#f1f5f9';
   const chartTickColor = isDark ? '#64748b' : '#94a3b8';
@@ -22,26 +25,13 @@ export default function Home() {
     background: isDark ? '#0f172a' : '#ffffff',
     color: isDark ? '#f1f5f9' : '#0f172a',
   };
-  const [tasks, setTasks] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
-
-  const loadData = async () => {
-    try {
-      const [taskData, catData] = await Promise.all([
-        base44.entities.Task.list(),
-        base44.entities.Category.list()
-      ]);
-      setTasks(taskData);
-      setCategories(catData);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const tasksQuery = useTasksQuery();
+  const categoriesQuery = useCategoriesQuery();
+  const tasks = tasksQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -116,11 +106,19 @@ export default function Home() {
 
   const recentTasks = [...tasks].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
 
-  if (loading) {
+  if (tasksQuery.isLoading || categoriesQuery.isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  if (tasksQuery.isError || categoriesQuery.isError) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin" />
-      </div>
+      <ErrorState
+        error={tasksQuery.error || categoriesQuery.error}
+        onRetry={() => {
+          tasksQuery.refetch();
+          categoriesQuery.refetch();
+        }}
+      />
     );
   }
 
@@ -278,7 +276,10 @@ export default function Home() {
         onClose={() => setFormOpen(false)}
         task={null}
         categories={categories}
-        onSaved={(savedTask) => navigate(`/tasks/${savedTask.id}`)}
+        onSaved={(savedTask) => {
+          queryClient.invalidateQueries({ queryKey: taskKeys.all });
+          navigate(`/tasks/${savedTask.id}`);
+        }}
       />
 
       <CopilotChat open={copilotOpen} onClose={() => setCopilotOpen(false)} />
